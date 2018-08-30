@@ -1,0 +1,7 @@
+[package]
+name = "NavX"
+version = "0.1.0"
+authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>"]
+
+[dependencies]
+wpilib = "0.2.1"

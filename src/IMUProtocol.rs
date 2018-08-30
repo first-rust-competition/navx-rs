@@ -1,3 +1,14 @@
+/*
+
+   Deprecated
+   (idk how to mark it in rust)
+
+*/
+
+
+
+
+
 pub const PACKET_START_CHAR: u8 = '!' as u8;
 pub const CHECKSUM_LENGTH: i8 = 2;   /* 8-bit checksump, all bytes before checksum */
 pub const TERMINATOR_LENGTH: i8 = 2;   /* Carriage Return, Line Feed */

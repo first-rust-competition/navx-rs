@@ -84,10 +84,24 @@ impl NavX {
                 read_progress += bytes_parsed.parse_start;
             }
 
-            //If a full packet has not yet been received, store it then rerun the loop.
-            if bytes_parsed < bytes_read {
-                for i in bytes_parsed..bytes_read {
-                    partial_buffer[read_progress + i - bytes_parsed + 1] = bytes_read[i];
+            //Remove dangling bytes from mangled packets
+            if bytes_parsed.bytes_parsed != bytes_parsed.parse_start {
+                let partialBufferRead =  self.read_buffer(read_progress as usize, partial_buffer);
+
+                for i in partialBufferRead.bytes_parsed..read_progress {
+                    partial_buffer[i - partialBufferRead.bytes_parsed] = partial_buffer[i];
+                }
+                read_progress -= partialBufferRead.bytes_parsed;
+            }
+
+            //Flush partial_buffer and remove all the broken packets. A few dropped packets is not an issue.
+            if read_progress + bytes_read - bytes_parsed.bytes_parsed >= 256 {
+                read_progress = 0;
+
+                //If a full packet has not yet been received, store it then rerun the loop.
+            } else if bytes_parsed.bytes_parsed < bytes_read {
+                for i in bytes_parsed.bytes_parsed..bytes_read {
+                    partial_buffer[read_progress + i + 1 - bytes_parsed.bytes_parsed] = bytes_read[i];
                 }
                 read_progress += bytes_read - bytes_parsed;
             }

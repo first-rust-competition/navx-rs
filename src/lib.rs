@@ -33,14 +33,14 @@ impl NavX {
     pub fn get_serial_port(port_id: Port) -> SerialPort {
         let mut serial_port = SerialPort::new(57600, port_id, 8, Parity::None, StopBits::One)
             .expect("NavX serial port did not create correctly!");
-        NavX::configure_serial_port(serial_port);
+        NavX::configure_serial_port(&mut serial_port);
         serial_port
     }
 
-    fn configure_serial_port(port: SerialPort) {
+    fn configure_serial_port(mut port: &mut SerialPort) {
         port.set_read_buf_size(256);
         port.set_timeout(1.0);
-        port.enable_termination('\n' as i8);
+        port.enable_termination('\n' as u8);
         port.flush();
         port.reset();
     }
@@ -52,25 +52,20 @@ impl NavX {
     fn run(&mut self) {
         self.stop = false;
 
-
-        let mut read_progress: usize = 0;
-        let mut direct_buffer_read_progress: i32 = 0;
-        let mut buffer: [u8; 256];
-        let mut partial_buffer: [u8; 256];
+        let mut buffer: [u8; 256] = [0; 256];
+        let mut partial_buffer: [u8; 256] = [0; 256];
         let mut bytes_read: usize;
+        let mut read_progress: usize = 0;
 
-        let mut found_message: bool = false;
-        let mut awaiting_bytes: bool = false;
-
-        NavX::configure_serial_port(self.serial_port);
+        NavX::configure_serial_port(&mut self.serial_port);
 
         while !self.stop {
 
             //initial parse of buffer
             bytes_read = match self.serial_port.read(&mut buffer[..]){
-                Ok(T) => T,
-                Err(E) => {
-                    NavX::configure_serial_port(self.serial_port);
+                Ok(v) => v,
+                Err(_e) => {
+                    NavX::configure_serial_port(&mut self.serial_port);
                     0
                 }
             } as usize;
@@ -93,12 +88,12 @@ impl NavX {
 
             //Remove dangling bytes from mangled packets
             if first_read_response.bytes_parsed != first_read_response.parse_start {
-                let partialBufferRead =  self.read_buffer(read_progress as usize, partial_buffer);
+                let partial_buffer_read =  self.read_buffer(read_progress as usize, partial_buffer);
 
-                for i in partialBufferRead.bytes_parsed..read_progress {
-                    partial_buffer[i - partialBufferRead.bytes_parsed] = partial_buffer[i];
+                for i in partial_buffer_read.bytes_parsed..read_progress {
+                    partial_buffer[i - partial_buffer_read.bytes_parsed] = partial_buffer[i];
                 }
-                read_progress -= partialBufferRead.bytes_parsed;
+                read_progress -= partial_buffer_read.bytes_parsed;
             }
 
             //Flush partial_buffer and remove all the broken packets. A few dropped packets is not an issue.
@@ -179,12 +174,10 @@ impl NavX {
     }
 
     fn parse_ascii_float(num: &[u8]) -> f64 {
-        let mut err: bool = false;
         let ascii_string: String = match String::from_utf8(num.to_vec()) {
             Ok(v) => v,
-            Err(e) => "-1".to_string()
+            Err(_e) => "-1".to_string()
         };
-
         return ascii_string.parse::<f64>().unwrap();
     }
 

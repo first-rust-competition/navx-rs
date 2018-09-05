@@ -18,7 +18,7 @@ const STREAM_CONFIG_RESPONSE: u8 = 's' as u8;
 pub struct NavX {
     port_id: Port,
     serial_port: Arc<Mutex<SerialPort>>,
-    stop: bool,
+    stop: Arc<Mutex<bool>>,
     yaw: Arc<Mutex<f64>>,
     pitch: Arc<Mutex<f64>>,
     roll: Arc<Mutex<f64>>,
@@ -35,7 +35,7 @@ impl NavX {
         let mut navx = NavX {
             port_id,
             serial_port: Arc::new(Mutex::new(NavX::get_serial_port(port_id))),
-            stop: false,
+            stop: Arc::new(Mutex::new(false)),
             yaw: Arc::new(Mutex::new(0.0)),
             pitch: Arc::new(Mutex::new(0.0)),
             roll: Arc::new(Mutex::new(0.0)),
@@ -64,15 +64,16 @@ impl NavX {
         self.serial_port = Arc::new(Mutex::new(NavX::get_serial_port(self.port_id)));
     }
 
-    pub fn run(&mut self) {
-        let mut yaw : Arc<Mutex<f64>> = self.yaw.clone();
-        let mut roll = self.roll.clone();
-        let mut pitch = self.pitch.clone();
-        let mut heading = self.heading.clone();
-        let mut serial_port = self.serial_port.clone();
-        let mut stop = self.stop.clone();
+    pub fn run<'a>(&mut self) {
+        let  mut yaw : &'a Arc<Mutex<f64>> = &self.yaw.clone();
+        let mut roll: &'a Arc<Mutex<f64>> = &self.roll.clone();
+        let mut pitch: &'a Arc<Mutex<f64>>  = &self.pitch.clone();
+        let mut heading: &'a Arc<Mutex<f64>>  = &self.heading.clone();
+        let mut serial_port: &'a Arc<Mutex<SerialPort>>  = &self.serial_port.clone();
+        let mut stop : &'a Arc<Mutex<bool>>  = &self.stop.clone();
         thread::spawn(move || {
-            stop = false;
+            let mut should_stop = *stop.lock().unwrap();
+            should_stop = false;
 
             let mut buffer: [u8; 256] = [0; 256];
             let mut partial_buffer: [u8; 256] = [0; 256];
@@ -81,7 +82,7 @@ impl NavX {
 
             NavX::configure_serial_port(&mut self.serial_port.lock().unwrap());
 
-            while !stop {
+            while !should_stop {
 
                 //initial parse of buffer
                 bytes_read = match serial_port.lock().unwrap().read(&mut buffer[..]) {

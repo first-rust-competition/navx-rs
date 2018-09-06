@@ -1,11 +1,10 @@
 extern crate wpilib;
 
-use std::thread;
-use wpilib::serial::*;
-use wpilib::ds::*;
 use std::sync::Arc;
 use std::sync::Mutex;
-
+use std::thread;
+use wpilib::ds::*;
+use wpilib::serial::*;
 
 const MESSAGE_START: u8 = '!' as u8;
 const BINARY_MESSAGE: u8 = '#' as u8;
@@ -59,11 +58,41 @@ impl NavX {
 
     fn configure_serial_port(port: &mut SerialPort) {
         let mut error = None;
-        match port.set_read_buf_size(256) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.set_timeout(1.0) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.enable_termination('\n' as u8) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.flush() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.reset() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.set_read_buf_size(256) {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.set_timeout(1.0) {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.enable_termination('\n' as u8) {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.flush() {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.reset() {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
         match error {
             None => (),
             Some(v) => {
@@ -80,13 +109,12 @@ impl NavX {
 
     pub fn run(&mut self) {
         let yaw: Arc<Mutex<f64>> = self.yaw.clone();
-        let roll:  Arc<Mutex<f64>> = self.roll.clone();
-        let pitch: Arc<Mutex<f64>>  = self.pitch.clone();
-        let heading: Arc<Mutex<f64>>  = self.heading.clone();
-        let serial_port: Arc<Mutex<SerialPort>>  = self.serial_port.clone();
-        let stop : Arc<Mutex<bool>>  = self.stop.clone();
+        let roll: Arc<Mutex<f64>> = self.roll.clone();
+        let pitch: Arc<Mutex<f64>> = self.pitch.clone();
+        let heading: Arc<Mutex<f64>> = self.heading.clone();
+        let serial_port: Arc<Mutex<SerialPort>> = self.serial_port.clone();
+        let stop: Arc<Mutex<bool>> = self.stop.clone();
         thread::spawn(move || {
-
             let mut buffer: [u8; 256] = [0; 256];
             let mut partial_buffer: [u8; 256] = [0; 256];
             let mut bytes_read: usize;
@@ -95,7 +123,6 @@ impl NavX {
             NavX::configure_serial_port(&mut serial_port.lock().unwrap());
 
             while !*stop.lock().unwrap() {
-
                 //initial parse of buffer
                 bytes_read = match serial_port.lock().unwrap().read(&mut buffer[..]) {
                     Ok(v) => v,
@@ -111,7 +138,8 @@ impl NavX {
                 }
 
                 //Parse what came through initially
-                let first_read_response = NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
+                let first_read_response =
+                    NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
 
                 //Add on the initial bytes
                 if first_read_response.parse_start > 0 {
@@ -123,7 +151,14 @@ impl NavX {
 
                 //Remove dangling bytes from mangled packets
                 if first_read_response.bytes_parsed != first_read_response.parse_start {
-                    let partial_buffer_read = NavX::read_buffer(read_progress as usize, partial_buffer, &yaw, &pitch, &roll, &heading);
+                    let partial_buffer_read = NavX::read_buffer(
+                        read_progress as usize,
+                        partial_buffer,
+                        &yaw,
+                        &pitch,
+                        &roll,
+                        &heading,
+                    );
 
                     for i in partial_buffer_read.bytes_parsed..read_progress {
                         partial_buffer[i - partial_buffer_read.bytes_parsed] = partial_buffer[i];
@@ -135,10 +170,11 @@ impl NavX {
                 if read_progress + bytes_read - first_read_response.bytes_parsed >= 256 {
                     read_progress = 0;
 
-                    //If a full packet has not yet been received, store it then rerun the loop.
+                //If a full packet has not yet been received, store it then rerun the loop.
                 } else if first_read_response.bytes_parsed < bytes_read {
                     for i in first_read_response.bytes_parsed..bytes_read {
-                        partial_buffer[read_progress + i + 1 - first_read_response.bytes_parsed] = buffer[i];
+                        partial_buffer[read_progress + i + 1 - first_read_response.bytes_parsed] =
+                            buffer[i];
                     }
                     read_progress += bytes_read - first_read_response.bytes_parsed;
                 }
@@ -146,8 +182,14 @@ impl NavX {
         });
     }
 
-
-    fn read_buffer(bytes_read: usize, buffer: [u8; 256], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) -> BufferParseResponse {
+    fn read_buffer(
+        bytes_read: usize,
+        buffer: [u8; 256],
+        yaw: &Arc<Mutex<f64>>,
+        pitch: &Arc<Mutex<f64>>,
+        roll: &Arc<Mutex<f64>>,
+        heading: &Arc<Mutex<f64>>,
+    ) -> BufferParseResponse {
         let mut direct_buffer_read_progress = 0;
         let mut awaiting_bytes = false;
         let mut parse_start = 512;
@@ -165,7 +207,11 @@ impl NavX {
                 if buffer[i + 1 as usize] as usize + i > bytes_read {
                     awaiting_bytes = true;
                 } else {
-                    NavX::parse_binary_packet(buffer[(i + 2) as usize], &buffer[(i + 3) as usize..(i + 3 + buffer[(i + 1) as usize] as usize) as usize]);
+                    NavX::parse_binary_packet(
+                        buffer[(i + 2) as usize],
+                        &buffer[(i + 3) as usize
+                                    ..(i + 3 + buffer[(i + 1) as usize] as usize) as usize],
+                    );
                 }
             } else {
                 found_msg = false;
@@ -173,9 +219,16 @@ impl NavX {
                     if i + 32 < bytes_read {
                         awaiting_bytes = true;
                     } else {
-                        NavX::parse_compass_message_packet(&buffer[(i + 1)..(i + 28)], yaw, pitch, roll, heading);
+                        NavX::parse_compass_message_packet(
+                            &buffer[(i + 1)..(i + 28)],
+                            yaw,
+                            pitch,
+                            roll,
+                            heading,
+                        );
                     }
-                } else if buffer[i as usize] == RAW_DATA_MESSAGE {}
+                } else if buffer[i as usize] == RAW_DATA_MESSAGE {
+                }
             }
 
             //Push bytes to other array if ending on a partial packet.
@@ -202,7 +255,13 @@ impl NavX {
         };
     }
 
-    fn parse_compass_message_packet(body: &[u8], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) {
+    fn parse_compass_message_packet(
+        body: &[u8],
+        yaw: &Arc<Mutex<f64>>,
+        pitch: &Arc<Mutex<f64>>,
+        roll: &Arc<Mutex<f64>>,
+        heading: &Arc<Mutex<f64>>,
+    ) {
         *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
         *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
         *roll.lock().unwrap() = NavX::parse_ascii_float(&body[14..20]);
@@ -212,7 +271,7 @@ impl NavX {
     fn parse_ascii_float(num: &[u8]) -> f64 {
         let ascii_string: String = match String::from_utf8(num.to_vec()) {
             Ok(v) => v,
-            Err(_e) => "-1".to_string()
+            Err(_e) => "-1".to_string(),
         };
         return ascii_string.parse::<f64>().unwrap();
     }

@@ -1,5 +1,5 @@
 [package]
-name = "NavX-Rust"
+name = "nav_x"
 version = "0.1.0"
 authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>"]
 

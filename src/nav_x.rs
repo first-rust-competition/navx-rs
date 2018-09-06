@@ -2,6 +2,7 @@ extern crate wpilib;
 
 use std::thread;
 use wpilib::serial::*;
+use wpilib::ds::*;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -11,7 +12,11 @@ const BINARY_MESSAGE: u8 = '#' as u8;
 
 const COMPASS_MESSAGE: u8 = 'y' as u8;
 const RAW_DATA_MESSAGE: u8 = 'g' as u8;
+
+#[allow(dead_code)]
 const STREAM_CONFIG_COMMAND: u8 = 'S' as u8;
+
+#[allow(dead_code)]
 const STREAM_CONFIG_RESPONSE: u8 = 's' as u8;
 
 pub struct NavX {
@@ -29,6 +34,7 @@ struct BufferParseResponse {
     parse_start: usize,
 }
 
+#[allow(dead_code)]
 impl NavX {
     pub fn new(port_id: Port) -> NavX {
         let mut navx = NavX {
@@ -51,12 +57,21 @@ impl NavX {
         serial_port
     }
 
-    fn configure_serial_port(mut port: &mut SerialPort) {
-        port.set_read_buf_size(256);
-        port.set_timeout(1.0);
-        port.enable_termination('\n' as u8);
-        port.flush();
-        port.reset();
+    fn configure_serial_port(port: &mut SerialPort) {
+        let mut error = None;
+        match port.set_read_buf_size(256) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.set_timeout(1.0) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.enable_termination('\n' as u8) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.flush() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.reset() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match error {
+            None => (),
+            Some(v) => {
+                let mut driver_station = DriverStation::new();
+                driver_station.report_error("Serial port closed during reset!");
+                driver_station.report_error(&v.message().to_uppercase());
+            }
+        }
     }
 
     pub fn reset_serial_port(&mut self) {
@@ -64,15 +79,13 @@ impl NavX {
     }
 
     pub fn run(&mut self) {
-        let mut yaw: Arc<Mutex<f64>> = self.yaw.clone();
-        let mut roll:  Arc<Mutex<f64>> = self.roll.clone();
-        let mut pitch: Arc<Mutex<f64>>  = self.pitch.clone();
-        let mut heading: Arc<Mutex<f64>>  = self.heading.clone();
-        let mut serial_port: Arc<Mutex<SerialPort>>  = self.serial_port.clone();
-        let mut stop : Arc<Mutex<bool>>  = self.stop.clone();
+        let yaw: Arc<Mutex<f64>> = self.yaw.clone();
+        let roll:  Arc<Mutex<f64>> = self.roll.clone();
+        let pitch: Arc<Mutex<f64>>  = self.pitch.clone();
+        let heading: Arc<Mutex<f64>>  = self.heading.clone();
+        let serial_port: Arc<Mutex<SerialPort>>  = self.serial_port.clone();
+        let stop : Arc<Mutex<bool>>  = self.stop.clone();
         thread::spawn(move || {
-            let mut should_stop = *stop.lock().unwrap();
-            should_stop = false;
 
             let mut buffer: [u8; 256] = [0; 256];
             let mut partial_buffer: [u8; 256] = [0; 256];
@@ -81,7 +94,7 @@ impl NavX {
 
             NavX::configure_serial_port(&mut serial_port.lock().unwrap());
 
-            while !should_stop {
+            while !*stop.lock().unwrap() {
 
                 //initial parse of buffer
                 bytes_read = match serial_port.lock().unwrap().read(&mut buffer[..]) {
@@ -204,7 +217,7 @@ impl NavX {
         return ascii_string.parse::<f64>().unwrap();
     }
 
-    fn parse_binary_packet(message_id: u8, body: &[u8]) {
+    fn parse_binary_packet(_message_id: u8, _body: &[u8]) {
         //Maybe switch based on id, and distribute the body to some more specific parser?
     }
 

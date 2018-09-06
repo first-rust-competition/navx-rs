@@ -6,17 +6,17 @@ use std::thread;
 use wpilib::ds::*;
 use wpilib::serial::*;
 
-const MESSAGE_START: u8 = '!' as u8;
-const BINARY_MESSAGE: u8 = '#' as u8;
+const MESSAGE_START: u8 = b'!';
+const BINARY_MESSAGE: u8 = b'#';
 
-const COMPASS_MESSAGE: u8 = 'y' as u8;
-const RAW_DATA_MESSAGE: u8 = 'g' as u8;
-
-#[allow(dead_code)]
-const STREAM_CONFIG_COMMAND: u8 = 'S' as u8;
+const COMPASS_MESSAGE: u8 = b'y';
+const RAW_DATA_MESSAGE: u8 = b'g';
 
 #[allow(dead_code)]
-const STREAM_CONFIG_RESPONSE: u8 = 's' as u8;
+const STREAM_CONFIG_COMMAND: u8 = b'S';
+
+#[allow(dead_code)]
+const STREAM_CONFIG_RESPONSE: u8 = b's';
 
 pub struct NavX {
     port_id: Port,
@@ -46,7 +46,7 @@ impl NavX {
             heading: Arc::new(Mutex::new(0.0)),
         };
         navx.run();
-        return navx;
+        navx
     }
 
     pub fn get_serial_port(port_id: Port) -> SerialPort {
@@ -72,7 +72,7 @@ impl NavX {
                 ()
             }
         };
-        match port.enable_termination('\n' as u8) {
+        match port.enable_termination(b'\n') {
             Ok(_v) => (),
             Err(e) => {
                 error = Some(e);
@@ -237,7 +237,7 @@ impl NavX {
             }
         }
 
-        return BufferParseResponse {
+        BufferParseResponse {
             bytes_parsed: {
                 if awaiting_bytes {
                     direct_buffer_read_progress
@@ -252,7 +252,7 @@ impl NavX {
                     parse_start
                 }
             },
-        };
+        }
     }
 
     fn parse_compass_message_packet(
@@ -273,7 +273,7 @@ impl NavX {
             Ok(v) => v,
             Err(_e) => "-1".to_string(),
         };
-        return ascii_string.parse::<f64>().unwrap();
+        ascii_string.parse::<f64>().unwrap()
     }
 
     fn parse_binary_packet(_message_id: u8, _body: &[u8]) {
@@ -281,18 +281,18 @@ impl NavX {
     }
 
     pub fn get_yaw(&self) -> f64 {
-        return *self.yaw.lock().unwrap();
+        *self.yaw.lock().unwrap()
     }
 
     pub fn get_pitch(&self) -> f64 {
-        return *self.pitch.lock().unwrap();
+        *self.pitch.lock().unwrap()
     }
 
     pub fn get_roll(&self) -> f64 {
-        return *self.roll.lock().unwrap();
+        *self.roll.lock().unwrap()
     }
 
     pub fn get_heading(&self) -> f64 {
-        return *self.heading.lock().unwrap();
+        *self.heading.lock().unwrap()
     }
 }

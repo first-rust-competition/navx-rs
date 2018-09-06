@@ -1,7 +1,6 @@
 extern crate wpilib;
 
 use std::thread;
-use std::time::Duration;
 use wpilib::serial::*;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -64,13 +63,13 @@ impl NavX {
         self.serial_port = Arc::new(Mutex::new(NavX::get_serial_port(self.port_id)));
     }
 
-    pub fn run<'a>(&mut self) {
-        let  mut yaw : &'a Arc<Mutex<f64>> = &self.yaw.clone();
-        let mut roll: &'a Arc<Mutex<f64>> = &self.roll.clone();
-        let mut pitch: &'a Arc<Mutex<f64>>  = &self.pitch.clone();
-        let mut heading: &'a Arc<Mutex<f64>>  = &self.heading.clone();
-        let mut serial_port: &'a Arc<Mutex<SerialPort>>  = &self.serial_port.clone();
-        let mut stop : &'a Arc<Mutex<bool>>  = &self.stop.clone();
+    pub fn run(&mut self) {
+        let mut yaw: Arc<Mutex<f64>> = self.yaw.clone();
+        let mut roll:  Arc<Mutex<f64>> = self.roll.clone();
+        let mut pitch: Arc<Mutex<f64>>  = self.pitch.clone();
+        let mut heading: Arc<Mutex<f64>>  = self.heading.clone();
+        let mut serial_port: Arc<Mutex<SerialPort>>  = self.serial_port.clone();
+        let mut stop : Arc<Mutex<bool>>  = self.stop.clone();
         thread::spawn(move || {
             let mut should_stop = *stop.lock().unwrap();
             should_stop = false;
@@ -80,7 +79,7 @@ impl NavX {
             let mut bytes_read: usize;
             let mut read_progress: usize = 0;
 
-            NavX::configure_serial_port(&mut self.serial_port.lock().unwrap());
+            NavX::configure_serial_port(&mut serial_port.lock().unwrap());
 
             while !should_stop {
 
@@ -99,7 +98,7 @@ impl NavX {
                 }
 
                 //Parse what came through initially
-                let first_read_response = NavX::read_buffer(bytes_read, buffer, yaw, pitch, roll, heading);
+                let first_read_response = NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
 
                 //Add on the initial bytes
                 if first_read_response.parse_start > 0 {
@@ -111,7 +110,7 @@ impl NavX {
 
                 //Remove dangling bytes from mangled packets
                 if first_read_response.bytes_parsed != first_read_response.parse_start {
-                    let partial_buffer_read = NavX::read_buffer(read_progress as usize, partial_buffer, yaw, pitch, roll, heading);
+                    let partial_buffer_read = NavX::read_buffer(read_progress as usize, partial_buffer, &yaw, &pitch, &roll, &heading);
 
                     for i in partial_buffer_read.bytes_parsed..read_progress {
                         partial_buffer[i - partial_buffer_read.bytes_parsed] = partial_buffer[i];
@@ -135,7 +134,7 @@ impl NavX {
     }
 
 
-    fn read_buffer(bytes_read: usize, buffer: [u8; 256], yaw: Arc<Mutex<f64>>, pitch: Arc<Mutex<f64>>, roll: Arc<Mutex<f64>>, heading: Arc<Mutex<f64>>) -> BufferParseResponse {
+    fn read_buffer(bytes_read: usize, buffer: [u8; 256], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) -> BufferParseResponse {
         let mut direct_buffer_read_progress = 0;
         let mut awaiting_bytes = false;
         let mut parse_start = 512;
@@ -190,7 +189,7 @@ impl NavX {
         };
     }
 
-    fn parse_compass_message_packet(body: &[u8], yaw: Arc<Mutex<f64>>, pitch: Arc<Mutex<f64>>, roll: Arc<Mutex<f64>>, heading: Arc<Mutex<f64>>) {
+    fn parse_compass_message_packet(body: &[u8], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) {
         *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
         *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
         *roll.lock().unwrap() = NavX::parse_ascii_float(&body[14..20]);

@@ -34,6 +34,12 @@ struct BufferParseResponse {
     parse_start: usize,
 }
 
+struct Packet<'a> {
+    packet_type: u8,
+    length: usize,
+    contents: &'a[u8]
+}
+
 #[allow(dead_code)]
 impl NavX {
     pub fn new(port_id: Port) -> NavX {
@@ -72,6 +78,7 @@ impl NavX {
                 driver_station.report_error(&v.message().to_uppercase());
             }
         }
+        DriverStation::new().report_error("Configured Serial port.");
     }
 
     pub fn reset_serial_port(&mut self) {
@@ -94,8 +101,11 @@ impl NavX {
 
             NavX::configure_serial_port(&mut serial_port.lock().unwrap());
 
+            serial_port.lock().unwrap().write(&[0xA1, 0xA3, 0x08, 0xF9, 0x08, 0xB4, 0xC4, 0x10, 0x13]);
+
             while !*stop.lock().unwrap() {
 
+                DriverStation::new().report_error("Attempting to read from serial port...");
                 //initial parse of buffer
                 bytes_read = match serial_port.lock().unwrap().read(&mut buffer[..]) {
                     Ok(v) => v,
@@ -104,11 +114,14 @@ impl NavX {
                         0
                     }
                 } as usize;
+                DriverStation::new().report_error( "Finished reading from serial port.");
 
                 //Skip the logic if it didn't find a packet
                 if bytes_read == 0 {
+                    DriverStation::new().report_error( "0 bytes read in last read.");
                     continue;
                 }
+                DriverStation::new().report_error("Got Data! Wooh!");
 
                 //Parse what came through initially
                 let first_read_response = NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
@@ -202,7 +215,41 @@ impl NavX {
         };
     }
 
+    fn verifyPacket(packet: &[u8]) -> Option<Packet> {
+        //Verify packet start and end conditions.
+        if packet[0] != 0xA1 || packet[packet.len() - 1] != 0x13 || packet[packet.len() - 1] != 0x10 {
+            return None;
+        }
+        let mut checksum : u8 = 0;
+        for i in 0..packet.len() - 5 {
+            checksum += packet[i];
+        }
+
+        let str_checksum = &match String::from_utf8(packet[packet.len() - 5..packet.len() - 3].to_vec()) {
+            Ok(v) => v,
+            Err(_e) => "00".to_string()
+        };
+
+        let original_checksum_val = u32::from_str_radix(str_checksum, 16).unwrap() as u8;
+        if original_checksum_val != checksum {
+            return None;
+        }
+        if packet[1] == 0xA3 {
+            return Option::Some(Packet {
+                packet_type: packet[3],
+                length: packet.len() - 9 as usize,
+                contents:  packet //&packet[4 .. packet.len() - 5]
+            });
+        }
+        return Option::Some(Packet {
+            packet_type: packet[1],
+            length: packet.len() - 7 as usize,
+            contents: packet //[2 .. packet.len() - 5]
+        });
+    }
+
     fn parse_compass_message_packet(body: &[u8], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) {
+        DriverStation::new().report_error("Parsed packet for compass message.");
         *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
         *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
         *roll.lock().unwrap() = NavX::parse_ascii_float(&body[14..20]);

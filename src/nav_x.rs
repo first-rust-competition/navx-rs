@@ -28,9 +28,10 @@ pub struct NavX {
     heading: Arc<Mutex<f64>>,
 }
 
-struct BufferParseResponse {
+struct BufferParseResponse<'a> {
     bytes_parsed: usize,
     parse_start: usize,
+    packets_found: Vec<Packet<'a>>
 }
 
 struct Packet<'a> {
@@ -195,18 +196,19 @@ impl NavX {
         });
     }
 
-    fn read_buffer(
+    fn read_buffer<'a>(
         bytes_read: usize,
         buffer: [u8; 256],
         yaw: &Arc<Mutex<f64>>,
         pitch: &Arc<Mutex<f64>>,
         roll: &Arc<Mutex<f64>>,
         heading: &Arc<Mutex<f64>>,
-    ) -> BufferParseResponse {
+    ) -> BufferParseResponse<'a> {
         let mut direct_buffer_read_progress = 0;
         let mut awaiting_bytes = false;
         let mut parse_start = 512;
         let mut found_msg: bool = false;
+        let mut packets_found = Vec::new();
 
         for i in 0..bytes_read {
             if buffer[i as usize] == MESSAGE_START {
@@ -217,28 +219,17 @@ impl NavX {
                 }
             } else if buffer[i as usize] == BINARY_MESSAGE && found_msg {
                 found_msg = false;
-                if buffer[i + 1 as usize] as usize + i > bytes_read {
-                    awaiting_bytes = true;
-                } else {
-                    NavX::parse_binary_packet(
-                        buffer[(i + 2) as usize],
-                        &buffer[(i + 3) as usize
-                                    ..(i + 3 + buffer[(i + 1) as usize] as usize) as usize],
-                    );
-                }
+                //There are no binary packets we care about at the moment, so they can just be scrapped.
             } else {
                 found_msg = false;
                 if buffer[i as usize] == COMPASS_MESSAGE {
                     if i + 32 < bytes_read {
                         awaiting_bytes = true;
                     } else {
-                        NavX::parse_compass_message_packet(
-                            &buffer[(i + 1)..(i + 28)],
-                            yaw,
-                            pitch,
-                            roll,
-                            heading,
-                        );
+                        match NavX::verifyPacket(&buffer[i - 1 .. i + 32]) {
+                            Some(v) => packets_found.push(v),
+                            None => ()
+                        };
                     }
                 } else if buffer[i as usize] == RAW_DATA_MESSAGE {
                 }
@@ -265,12 +256,17 @@ impl NavX {
                     parse_start
                 }
             },
+            packets_found
         }
     }
 
+    /*
+       Takes in a slice which represents a single packet, then returns a packet struct if the packet
+       passes the checksum and contains the correct packet start and end.
+    */
     fn verifyPacket(packet: &[u8]) -> Option<Packet> {
         //Verify packet start and end conditions.
-        if packet[0] != 0xA1 || packet[packet.len() - 1] != 0x13 || packet[packet.len() - 1] != 0x10 {
+        if packet[0] != 0xA1 || packet[packet.len() - 2] != 0x13 || packet[packet.len() - 1] != 0x10 {
             return None;
         }
         let mut checksum : u8 = 0;
@@ -301,6 +297,7 @@ impl NavX {
         });
     }
 
+    //deprecated
     fn parse_compass_message_packet(
         body: &[u8],
         yaw: &Arc<Mutex<f64>>,

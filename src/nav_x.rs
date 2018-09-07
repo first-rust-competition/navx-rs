@@ -1,23 +1,22 @@
 extern crate wpilib;
 
-use std::thread;
-use wpilib::serial::*;
-use wpilib::ds::*;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread;
+use wpilib::ds::*;
+use wpilib::serial::*;
 
+const MESSAGE_START: u8 = b'!';
+const BINARY_MESSAGE: u8 = b'#';
 
-const MESSAGE_START: u8 = '!' as u8;
-const BINARY_MESSAGE: u8 = '#' as u8;
-
-const COMPASS_MESSAGE: u8 = 'y' as u8;
-const RAW_DATA_MESSAGE: u8 = 'g' as u8;
+const COMPASS_MESSAGE: u8 = b'y';
+const RAW_DATA_MESSAGE: u8 = b'g';
 
 #[allow(dead_code)]
-const STREAM_CONFIG_COMMAND: u8 = 'S' as u8;
+const STREAM_CONFIG_COMMAND: u8 = b'S';
 
 #[allow(dead_code)]
-const STREAM_CONFIG_RESPONSE: u8 = 's' as u8;
+const STREAM_CONFIG_RESPONSE: u8 = b's';
 
 pub struct NavX {
     port_id: Port,
@@ -53,7 +52,7 @@ impl NavX {
             heading: Arc::new(Mutex::new(0.0)),
         };
         navx.run();
-        return navx;
+        navx
     }
 
     pub fn get_serial_port(port_id: Port) -> SerialPort {
@@ -65,11 +64,41 @@ impl NavX {
 
     fn configure_serial_port(port: &mut SerialPort) {
         let mut error = None;
-        match port.set_read_buf_size(256) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.set_timeout(1.0) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.enable_termination('\n' as u8) { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.flush() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
-        match port.reset() { Ok(_v) => (), Err(e) => {error = Some(e); ()} };
+        match port.set_read_buf_size(256) {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.set_timeout(1.0) {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.enable_termination(b'\n') {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.flush() {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
+        match port.reset() {
+            Ok(_v) => (),
+            Err(e) => {
+                error = Some(e);
+                ()
+            }
+        };
         match error {
             None => (),
             Some(v) => {
@@ -87,13 +116,12 @@ impl NavX {
 
     pub fn run(&mut self) {
         let yaw: Arc<Mutex<f64>> = self.yaw.clone();
-        let roll:  Arc<Mutex<f64>> = self.roll.clone();
-        let pitch: Arc<Mutex<f64>>  = self.pitch.clone();
-        let heading: Arc<Mutex<f64>>  = self.heading.clone();
-        let serial_port: Arc<Mutex<SerialPort>>  = self.serial_port.clone();
-        let stop : Arc<Mutex<bool>>  = self.stop.clone();
+        let roll: Arc<Mutex<f64>> = self.roll.clone();
+        let pitch: Arc<Mutex<f64>> = self.pitch.clone();
+        let heading: Arc<Mutex<f64>> = self.heading.clone();
+        let serial_port: Arc<Mutex<SerialPort>> = self.serial_port.clone();
+        let stop: Arc<Mutex<bool>> = self.stop.clone();
         thread::spawn(move || {
-
             let mut buffer: [u8; 256] = [0; 256];
             let mut partial_buffer: [u8; 256] = [0; 256];
             let mut bytes_read: usize;
@@ -104,7 +132,6 @@ impl NavX {
             serial_port.lock().unwrap().write(&[0xA1, 0xA3, 0x08, 0xF9, 0x08, 0xB4, 0xC4, 0x10, 0x13]);
 
             while !*stop.lock().unwrap() {
-
                 DriverStation::new().report_error("Attempting to read from serial port...");
                 //initial parse of buffer
                 bytes_read = match serial_port.lock().unwrap().read(&mut buffer[..]) {
@@ -124,7 +151,8 @@ impl NavX {
                 DriverStation::new().report_error("Got Data! Wooh!");
 
                 //Parse what came through initially
-                let first_read_response = NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
+                let first_read_response =
+                    NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
 
                 //Add on the initial bytes
                 if first_read_response.parse_start > 0 {
@@ -136,7 +164,14 @@ impl NavX {
 
                 //Remove dangling bytes from mangled packets
                 if first_read_response.bytes_parsed != first_read_response.parse_start {
-                    let partial_buffer_read = NavX::read_buffer(read_progress as usize, partial_buffer, &yaw, &pitch, &roll, &heading);
+                    let partial_buffer_read = NavX::read_buffer(
+                        read_progress as usize,
+                        partial_buffer,
+                        &yaw,
+                        &pitch,
+                        &roll,
+                        &heading,
+                    );
 
                     for i in partial_buffer_read.bytes_parsed..read_progress {
                         partial_buffer[i - partial_buffer_read.bytes_parsed] = partial_buffer[i];
@@ -148,10 +183,11 @@ impl NavX {
                 if read_progress + bytes_read - first_read_response.bytes_parsed >= 256 {
                     read_progress = 0;
 
-                    //If a full packet has not yet been received, store it then rerun the loop.
+                //If a full packet has not yet been received, store it then rerun the loop.
                 } else if first_read_response.bytes_parsed < bytes_read {
                     for i in first_read_response.bytes_parsed..bytes_read {
-                        partial_buffer[read_progress + i + 1 - first_read_response.bytes_parsed] = buffer[i];
+                        partial_buffer[read_progress + i + 1 - first_read_response.bytes_parsed] =
+                            buffer[i];
                     }
                     read_progress += bytes_read - first_read_response.bytes_parsed;
                 }
@@ -159,8 +195,14 @@ impl NavX {
         });
     }
 
-
-    fn read_buffer(bytes_read: usize, buffer: [u8; 256], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) -> BufferParseResponse {
+    fn read_buffer(
+        bytes_read: usize,
+        buffer: [u8; 256],
+        yaw: &Arc<Mutex<f64>>,
+        pitch: &Arc<Mutex<f64>>,
+        roll: &Arc<Mutex<f64>>,
+        heading: &Arc<Mutex<f64>>,
+    ) -> BufferParseResponse {
         let mut direct_buffer_read_progress = 0;
         let mut awaiting_bytes = false;
         let mut parse_start = 512;
@@ -178,7 +220,11 @@ impl NavX {
                 if buffer[i + 1 as usize] as usize + i > bytes_read {
                     awaiting_bytes = true;
                 } else {
-                    NavX::parse_binary_packet(buffer[(i + 2) as usize], &buffer[(i + 3) as usize..(i + 3 + buffer[(i + 1) as usize] as usize) as usize]);
+                    NavX::parse_binary_packet(
+                        buffer[(i + 2) as usize],
+                        &buffer[(i + 3) as usize
+                                    ..(i + 3 + buffer[(i + 1) as usize] as usize) as usize],
+                    );
                 }
             } else {
                 found_msg = false;
@@ -186,9 +232,16 @@ impl NavX {
                     if i + 32 < bytes_read {
                         awaiting_bytes = true;
                     } else {
-                        NavX::parse_compass_message_packet(&buffer[(i + 1)..(i + 28)], yaw, pitch, roll, heading);
+                        NavX::parse_compass_message_packet(
+                            &buffer[(i + 1)..(i + 28)],
+                            yaw,
+                            pitch,
+                            roll,
+                            heading,
+                        );
                     }
-                } else if buffer[i as usize] == RAW_DATA_MESSAGE {}
+                } else if buffer[i as usize] == RAW_DATA_MESSAGE {
+                }
             }
 
             //Push bytes to other array if ending on a partial packet.
@@ -197,7 +250,7 @@ impl NavX {
             }
         }
 
-        return BufferParseResponse {
+        BufferParseResponse {
             bytes_parsed: {
                 if awaiting_bytes {
                     direct_buffer_read_progress
@@ -212,7 +265,7 @@ impl NavX {
                     parse_start
                 }
             },
-        };
+        }
     }
 
     fn verifyPacket(packet: &[u8]) -> Option<Packet> {
@@ -248,7 +301,13 @@ impl NavX {
         });
     }
 
-    fn parse_compass_message_packet(body: &[u8], yaw: &Arc<Mutex<f64>>, pitch: &Arc<Mutex<f64>>, roll: &Arc<Mutex<f64>>, heading: &Arc<Mutex<f64>>) {
+    fn parse_compass_message_packet(
+        body: &[u8],
+        yaw: &Arc<Mutex<f64>>,
+        pitch: &Arc<Mutex<f64>>,
+        roll: &Arc<Mutex<f64>>,
+        heading: &Arc<Mutex<f64>>,
+    ) {
         DriverStation::new().report_error("Parsed packet for compass message.");
         *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
         *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
@@ -259,9 +318,9 @@ impl NavX {
     fn parse_ascii_float(num: &[u8]) -> f64 {
         let ascii_string: String = match String::from_utf8(num.to_vec()) {
             Ok(v) => v,
-            Err(_e) => "-1".to_string()
+            Err(_e) => "-1".to_string(),
         };
-        return ascii_string.parse::<f64>().unwrap();
+        ascii_string.parse::<f64>().unwrap()
     }
 
     fn parse_binary_packet(_message_id: u8, _body: &[u8]) {
@@ -269,18 +328,18 @@ impl NavX {
     }
 
     pub fn get_yaw(&self) -> f64 {
-        return *self.yaw.lock().unwrap();
+        *self.yaw.lock().unwrap()
     }
 
     pub fn get_pitch(&self) -> f64 {
-        return *self.pitch.lock().unwrap();
+        *self.pitch.lock().unwrap()
     }
 
     pub fn get_roll(&self) -> f64 {
-        return *self.roll.lock().unwrap();
+        *self.roll.lock().unwrap()
     }
 
     pub fn get_heading(&self) -> f64 {
-        return *self.heading.lock().unwrap();
+        *self.heading.lock().unwrap()
     }
 }

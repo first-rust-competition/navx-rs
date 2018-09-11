@@ -5,44 +5,17 @@ use std::sync::Mutex;
 use std::thread;
 use wpilib::ds::*;
 use wpilib::serial::*;
+use AHRS;
 
 
 pub struct NavX {
-    port_id: Port,
-    serial_port: Arc<Mutex<SerialPort>>,
-    stop: Arc<Mutex<bool>>,
-    yaw: Arc<Mutex<f64>>,
-    pitch: Arc<Mutex<f64>>,
-    roll: Arc<Mutex<f64>>,
-    heading: Arc<Mutex<f64>>,
-}
-
-struct BufferParseResponse {
-    bytes_parsed: usize,
-    parse_start: usize,
-    packets_found: Vec<Packet>
-}
-
-struct Packet {
-    packet_type: u8,
-    length: usize,
-    contents: [u8; 128]
+    port_id: Arc<Mutex<AHRS>>
 }
 
 #[allow(dead_code)]
 impl NavX {
     pub fn new(port_id: Port, bit_rate: u16) -> NavX {
-        let mut navx = NavX {
-            port_id,
-            serial_port: Arc::new(Mutex::new(NavX::get_serial_port(port_id))),
-            stop: Arc::new(Mutex::new(false)),
-            yaw: Arc::new(Mutex::new(0.0)),
-            pitch: Arc::new(Mutex::new(0.0)),
-            roll: Arc::new(Mutex::new(0.0)),
-            heading: Arc::new(Mutex::new(0.0)),
-        };
-        navx.run();
-        navx
+
     }
 
     pub fn get_serial_port(port_id: Port) -> SerialPort {
@@ -139,25 +112,5 @@ impl NavX {
                 }
             }
         });
-    }
-
-    pub fn get_yaw(&self) -> f64 {
-        *self.yaw.lock().unwrap()
-    }
-
-    pub fn get_pitch(&self) -> f64 {
-        *self.pitch.lock().unwrap()
-    }
-
-    pub fn get_roll(&self) -> f64 {
-        *self.roll.lock().unwrap()
-    }
-
-    pub fn get_heading(&self) -> f64 {
-        *self.heading.lock().unwrap()
-    }
-
-    pub fn stop(&self) {
-        *self.stop.lock().unwrap() = true;
     }
 }

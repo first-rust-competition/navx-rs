@@ -6,6 +6,8 @@ use std::thread;
 use wpilib::ds::*;
 use wpilib::serial::*;
 
+mod register_io_spi;
+
 const MESSAGE_START: u8 = b'!';
 const BINARY_MESSAGE: u8 = b'#';
 
@@ -28,16 +30,16 @@ pub struct NavX {
     heading: Arc<Mutex<f64>>,
 }
 
-struct BufferParseResponse<'a> {
+struct BufferParseResponse {
     bytes_parsed: usize,
     parse_start: usize,
-    packets_found: Vec<Packet<'a>>
+    packets_found: Vec<Packet>
 }
 
-struct Packet<'a> {
+struct Packet {
     packet_type: u8,
     length: usize,
-    contents: &'a[u8]
+    contents: [u8; 128]
 }
 
 #[allow(dead_code)]
@@ -147,13 +149,19 @@ impl NavX {
                 //Skip the logic if it didn't find a packet
                 if bytes_read == 0 {
                     DriverStation::new().report_error( "0 bytes read in last read.");
+
+                    for i in 0..255 {
+                        if buffer[i] != 0 {
+                            DriverStation::new().report_error("Found non-zero entry in buffer!");
+                        }
+                    }
                     continue;
                 }
                 DriverStation::new().report_error("Got Data! Wooh!");
 
                 //Parse what came through initially
                 let first_read_response =
-                    NavX::read_buffer(bytes_read, buffer, &yaw, &pitch, &roll, &heading);
+                    NavX::read_buffer(bytes_read, &mut buffer, &yaw, &pitch, &roll, &heading);
 
                 //Add on the initial bytes
                 if first_read_response.parse_start > 0 {
@@ -167,7 +175,7 @@ impl NavX {
                 if first_read_response.bytes_parsed != first_read_response.parse_start {
                     let partial_buffer_read = NavX::read_buffer(
                         read_progress as usize,
-                        partial_buffer,
+                        &mut partial_buffer,
                         &yaw,
                         &pitch,
                         &roll,
@@ -196,14 +204,14 @@ impl NavX {
         });
     }
 
-    fn read_buffer<'a>(
+    fn read_buffer(
         bytes_read: usize,
-        buffer: [u8; 256],
+        buffer: &mut [u8; 256],
         yaw: &Arc<Mutex<f64>>,
         pitch: &Arc<Mutex<f64>>,
         roll: &Arc<Mutex<f64>>,
         heading: &Arc<Mutex<f64>>,
-    ) -> BufferParseResponse<'a> {
+    ) -> BufferParseResponse {
         let mut direct_buffer_read_progress = 0;
         let mut awaiting_bytes = false;
         let mut parse_start = 512;
@@ -226,7 +234,7 @@ impl NavX {
                     if i + 32 < bytes_read {
                         awaiting_bytes = true;
                     } else {
-                        match NavX::verifyPacket(&buffer[i - 1 .. i + 32]) {
+                        match NavX::verifyPacket(&mut buffer[i - 1 .. i + 32]) {
                             Some(v) => packets_found.push(v),
                             None => ()
                         };
@@ -264,7 +272,7 @@ impl NavX {
        Takes in a slice which represents a single packet, then returns a packet struct if the packet
        passes the checksum and contains the correct packet start and end.
     */
-    fn verifyPacket(packet: &[u8]) -> Option<Packet> {
+    fn verifyPacket(packet: &mut [u8]) -> Option<Packet> {
         //Verify packet start and end conditions.
         if packet[0] != 0xA1 || packet[packet.len() - 2] != 0x13 || packet[packet.len() - 1] != 0x10 {
             return None;
@@ -287,49 +295,57 @@ impl NavX {
             return Option::Some(Packet {
                 packet_type: packet[3],
                 length: packet.len() - 9 as usize,
-                contents:  packet //&packet[4 .. packet.len() - 5]
+                contents:  {
+                    let mut arr : [u8; 128] = [0; 128];
+                    arr.copy_from_slice(&packet[4 .. packet.len() - 5]);
+                    arr
+                }
             });
         }
         return Option::Some(Packet {
             packet_type: packet[1],
             length: packet.len() - 7 as usize,
-            contents: packet //[2 .. packet.len() - 5]
-        });
-    }
+            contents: {
+                let mut arr : [u8; 128] = [0; 128];
+                arr.copy_from_slice(&packet[2 .. packet.len() - 5]);
+                arr
+            }
+    });
+}
 
-    //deprecated
-    fn parse_compass_message_packet(
-        body: &[u8],
-        yaw: &Arc<Mutex<f64>>,
-        pitch: &Arc<Mutex<f64>>,
-        roll: &Arc<Mutex<f64>>,
-        heading: &Arc<Mutex<f64>>,
-    ) {
-        DriverStation::new().report_error("Parsed packet for compass message.");
-        *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
-        *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
-        *roll.lock().unwrap() = NavX::parse_ascii_float(&body[14..20]);
-        *heading.lock().unwrap() = NavX::parse_ascii_float(&body[21..27]);
-    }
+//deprecated
+fn parse_compass_message_packet(
+    body: &[u8],
+    yaw: &Arc<Mutex<f64>>,
+    pitch: &Arc<Mutex<f64>>,
+    roll: &Arc<Mutex<f64>>,
+    heading: &Arc<Mutex<f64>>,
+) {
+    DriverStation::new().report_error("Parsed packet for compass message.");
+    *yaw.lock().unwrap() = NavX::parse_ascii_float(&body[0..6]);
+    *pitch.lock().unwrap() = NavX::parse_ascii_float(&body[7..13]);
+    *roll.lock().unwrap() = NavX::parse_ascii_float(&body[14..20]);
+    *heading.lock().unwrap() = NavX::parse_ascii_float(&body[21..27]);
+}
 
-    fn parse_ascii_float(num: &[u8]) -> f64 {
-        let ascii_string: String = match String::from_utf8(num.to_vec()) {
-            Ok(v) => v,
-            Err(_e) => "-1".to_string(),
-        };
-        ascii_string.parse::<f64>().unwrap()
-    }
+fn parse_ascii_float(num: &[u8]) -> f64 {
+    let ascii_string: String = match String::from_utf8(num.to_vec()) {
+        Ok(v) => v,
+        Err(_e) => "-1".to_string(),
+    };
+    ascii_string.parse::<f64>().unwrap()
+}
 
-    fn parse_binary_packet(_message_id: u8, _body: &[u8]) {
-        //Maybe switch based on id, and distribute the body to some more specific parser?
-    }
+fn parse_binary_packet(_message_id: u8, _body: &[u8]) {
+    //Maybe switch based on id, and distribute the body to some more specific parser?
+}
 
-    pub fn get_yaw(&self) -> f64 {
-        *self.yaw.lock().unwrap()
-    }
+pub fn get_yaw(&self) -> f64 {
+    *self.yaw.lock().unwrap()
+}
 
-    pub fn get_pitch(&self) -> f64 {
-        *self.pitch.lock().unwrap()
+pub fn get_pitch(&self) -> f64 {
+    *self.pitch.lock().unwrap()
     }
 
     pub fn get_roll(&self) -> f64 {

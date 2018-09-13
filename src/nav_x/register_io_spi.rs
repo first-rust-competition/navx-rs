@@ -14,15 +14,6 @@ use wpilib::spi;
 
 use nav_x::AHRS;
 
-struct BoardID {
-    board_type: u8,
-    hw_rev: u8,
-    fw_ver_major: u8,
-    fw_ver_minor: u8,
-    fw_revision: i16,
-    unique_id: [u8; 12],
-}
-
 struct BoardState {
     op_status: u8,
     sensor_status: i16,
@@ -45,11 +36,10 @@ struct iregister_io {
     update_count: i32,
     last_sensor_timestamp: u32,
     ahrs: Arc<Mutex<AHRS::AHRS>>,
-    board_id: BoardID,
     board_state: BoardState,
 }
 
-pub fn initDefault(port: spi::Spi, ahrs: Arc<Mutex<AHRS>>) {
+pub fn initDefault(port: spi::Spi, ahrs: Arc<Mutex<AHRS::AHRS>>) {
     iregister_io::new(port, 8, ahrs).run();
 }
 
@@ -59,12 +49,13 @@ impl iregister_io {
 
     //Defaults
     const IO_TIMEOUT_SECONDS: f64 = 1.0;
-    const DELAY_OVERHEAD_MILLISECONDS: f64 = 4.0;
+    const DELAY_OVERHEAD_MILLISECONDS: f32 = 4.0;
 
     //Protocol Constants (No touchy!)
     const NAVX_REG_UPDATE_RATE_HZ: u8 = 0x04;
     const NAVX_REG_INTEGRATION_CTL: u8 = 0x56;
     const NAVX_INTEGRATION_CTL_RESET_YAW: u8 = 0x80;
+    const NAVX_REG_ACCEL_FSR_G: u8 = 0x05;
 
     const NAVX_REG_SENSOR_STATUS_L: u8 = 0x10;
     const NAVX_REG_SENSOR_STATUS_H: u8 = 0x11;
@@ -86,6 +77,28 @@ impl iregister_io {
     const NAVX_REG_CAPABILITY_FLAGS_L: u8 = 0x0B;
     const NAVX_REG_CAPABILITY_FLAGS_H: u8 = 0x0C;
 
+    const NAVX_REG_TIMESTAMP_L_L: u8 = 0x12;
+    const NAVX_REG_TIMESTAMP_L_H: u8 = 0x13;
+    const NAVX_REG_TIMESTAMP_H_L: u8 = 0x14;
+    const NAVX_REG_TIMESTAMP_H_H: u8 = 0x15;
+
+    const NAVX_REG_YAW_L: u8 = 0x16; /* Lower 8 bits of Yaw     */
+    const NAVX_REG_YAW_H: u8 = 0x17; /* Upper 8 bits of Yaw     */
+    const NAVX_REG_ROLL_L: u8 = 0x18; /* Lower 8 bits of Roll    */
+    const NAVX_REG_ROLL_H: u8 = 0x19; /* Upper 8 bits of Roll    */
+    const NAVX_REG_PITCH_L: u8 = 0x1A; /* Lower 8 bits of Pitch   */
+    const NAVX_REG_PITCH_H: u8 = 0x1B; /* Upper 8 bits of Pitch   */
+    const NAVX_REG_HEADING_L: u8 = 0x1C; /* Lower 8 bits of Heading */
+    const NAVX_REG_HEADING_H: u8 = 0x1D; /* Upper 8 bits of Heading */
+    const NAVX_REG_FUSED_HEADING_L: u8 = 0x1E; /* Upper 8 bits of Fused Heading */
+    const NAVX_REG_FUSED_HEADING_H: u8 = 0x1F; /* Upper 8 bits of Fused Heading */
+    const NAVX_REG_ALTITUDE_I_L: u8 = 0x20;
+    const NAVX_REG_ALTITUDE_I_H: u8 = 0x21;
+    const NAVX_REG_ALTITUDE_D_L: u8 = 0x22;
+    const NAVX_REG_ALTITUDE_D_H: u8 = 0x23;
+
+    const NAVX_REG_LAST: u8 = 0xF6;
+
     pub fn new(port: spi::Spi, bit_rate: u32, ahrs: Arc<Mutex<AHRS::AHRS>>) -> iregister_io {
         iregister_io {
             port,
@@ -98,8 +111,16 @@ impl iregister_io {
             update_count: 0,
             last_sensor_timestamp: 0,
             ahrs,
-            board_id,
-            board_state,
+            board_state: BoardState {
+                op_status: 0,
+                sensor_status: 0,
+                cal_status: 0,
+                selftest_status: 0,
+                capability_flags: 0,
+                update_rate_hz: 0,
+                accel_fsr_g: 0,
+                gyro_fsr_dps: 0,
+            },
         }
     }
 
@@ -130,7 +151,7 @@ impl iregister_io {
     }
 
 
-    pub fn read(&mut self, first_address: u8, buffer: &mut [u8; 256], buffer_len: usize) -> bool {
+    pub fn read(&mut self, first_address: u8, buffer: &mut [u8; 256], buffer_len: i32) -> bool {
         let mut cmd: [u8; 3] = [0; 3];
         cmd[0] = first_address;
         cmd[1] = buffer_len as u8;
@@ -149,14 +170,14 @@ impl iregister_io {
             return false; // READ ERROR
         }
         let crc: u8 = iregister_io::getCRC(&self.rx_buffer[..], buffer_len as u32);
-        if crc != self.rx_buffer[buffer_len] {
+        if crc != self.rx_buffer[buffer_len as usize] {
             if self.trace {
-                println!("navX-MXP SPI CRC err.  Length:  {}, Got:  {}; Calculated:  {}", buffer_len, self.rx_buffer[buffer_len], crc);
+                println!("navX-MXP SPI CRC err.  Length:  {}, Got:  {}; Calculated:  {}", buffer_len, self.rx_buffer[buffer_len as usize], crc);
             }
             return false; // CRC ERROR
         } else {
             for i in 0..buffer_len {
-                buffer[i] = self.rx_buffer[i];
+                buffer[i as usize] = self.rx_buffer[i as usize];
             }
         }
         return true;
@@ -214,7 +235,6 @@ impl iregister_io {
             iregister_io::NAVX_INTEGRATION_CTL_RESET_DISP_Y | iregister_io::NAVX_INTEGRATION_CTL_RESET_DISP_Z);
     }
 
-
     pub fn run(&mut self) {
         thread::spawn(move || {
             self.init();
@@ -223,14 +243,14 @@ impl iregister_io {
             self.set_update_rate_hz(self.update_rate_hz);
             self.get_configuration();
 
-            let mut update_rate_ms = 1.0 / self.update_rate_hz;
+            let mut update_rate_ms = 1.0 / self.update_rate_hz as f32;
             if update_rate_ms > iregister_io::DELAY_OVERHEAD_MILLISECONDS {
                 update_rate_ms -= iregister_io::DELAY_OVERHEAD_MILLISECONDS;
             }
 
             /* IO Loop */
             while !self.ahrs.lock().unwrap().should_stop() {
-                if board_state.update_rate_hz != self.update_rate_hz {
+                if self.board_state.update_rate_hz != self.update_rate_hz {
                     self.set_update_rate_hz(self.update_rate_hz);
                 }
                 self.get_current_data();
@@ -243,23 +263,16 @@ impl iregister_io {
     pub fn get_configuration(&mut self) -> bool {
         let mut retry_count: i32 = 0;
         while retry_count < 3 {
-            let mut config: [u8; iregister_io::NAVX_REG_SENSOR_STATUS_H + 1 as usize] = [0; iregister_io::NAVX_REG_SENSOR_STATUS_H + 1];
-            if self.read(iregister_io::NAVX_REG_WHOAMI, &mut config, config.len()) {
-                self.board_id.hw_rev = config[iregister_io::NAVX_REG_HW_REV];
-                self.board_id.fw_ver_major = config[iregister_io::NAVX_REG_FW_VER_MAJOR];
-                self.board_id.fw_ver_minor = config[iregister_io::NAVX_REG_FW_VER_MINOR];
-                self.board_id.board_type = config[iregister_io::NAVX_REG_WHOAMI];
-                //notify_sink -> SetBoardID(board_id);
-
-                self.board_state.cal_status = config[iregister_io::NAVX_REG_CAL_STATUS];
-                self.board_state.op_status = config[iregister_io::NAVX_REG_OP_STATUS];
-                self.board_state.selftest_status = config[iregister_io::NAVX_REG_SELFTEST_STATUS];
-                self.board_state.sensor_status = iregister_io::tou16(config[iregister_io::NAVX_REG_SENSOR_STATUS_L..iregister_io::NAVX_REG_SENSOR_STATUS_L + 1]) as i16;
-                self.board_state.gyro_fsr_dps = iregister_io::tou16(config[iregister_io::NAVX_REG_GYRO_FSR_DPS_L..iregister_io::NAVX_REG_GYRO_FSR_DPS_L + 1]) as i16;
-                self.board_state.accel_fsr_g = config[iregister_io::NAVX_REG_ACCEL_FSR_G] as i16;
-                self.board_state.update_rate_hz = config[iregister_io::NAVX_REG_UPDATE_RATE_HZ];
-                self.board_state.capability_flags = iregister_io::tou16(config[iregister_io::NAVX_REG_CAPABILITY_FLAGS_L..iregister_io::NAVX_REG_CAPABILITY_FLAGS_L + 1]) as i16;
-                //notify_sink -> SetBoardState(board_state);
+            let mut config: [u8; 256] = [0; 256];
+            if self.read(iregister_io::NAVX_REG_WHOAMI, &mut config, (iregister_io::NAVX_REG_SENSOR_STATUS_H + 1) as i32) {
+                self.board_state.cal_status = config[iregister_io::NAVX_REG_CAL_STATUS as usize];
+                self.board_state.op_status = config[iregister_io::NAVX_REG_OP_STATUS as usize];
+                self.board_state.selftest_status = config[iregister_io::NAVX_REG_SELFTEST_STATUS as usize];
+                self.board_state.sensor_status = iregister_io::tou16(&config[iregister_io::NAVX_REG_SENSOR_STATUS_L as usize..(iregister_io::NAVX_REG_SENSOR_STATUS_L + 1) as usize]) as i16;
+                self.board_state.gyro_fsr_dps = iregister_io::tou16(&config[iregister_io::NAVX_REG_GYRO_FSR_DPS_L as usize..(iregister_io::NAVX_REG_GYRO_FSR_DPS_L + 1) as usize]) as i16;
+                self.board_state.accel_fsr_g = config[iregister_io::NAVX_REG_ACCEL_FSR_G as usize] as i16;
+                self.board_state.update_rate_hz = config[iregister_io::NAVX_REG_UPDATE_RATE_HZ as usize];
+                self.board_state.capability_flags = iregister_io::tou16(&config[iregister_io::NAVX_REG_CAPABILITY_FLAGS_L as usize..(iregister_io::NAVX_REG_CAPABILITY_FLAGS_L + 1) as usize]) as i16;
                 return true;
             } else {
                 thread::sleep(Duration::from_millis(50));
@@ -270,7 +283,7 @@ impl iregister_io {
     }
 
     fn tou16(arr: &[u8]) -> u16 {
-        return (arr[0] as u16) << 8 | arr[1];
+        return (arr[0] as u16) << 8 | arr[1] as u16;
     }
 
     fn tou32(arr: &[u8]) -> u32 {
@@ -279,58 +292,24 @@ impl iregister_io {
 
     pub fn get_current_data(&mut self) {
         let first_address: u8 = iregister_io::NAVX_REG_UPDATE_RATE_HZ;
-        let mut buffer_len: usize;
-        let mut curr_data: [u8; iregister_io::NAVX_REG_LAST + 1] = [0; iregister_io::NAVX_REG_LAST + 1];
+        let mut buffer_len: i32;
+        let mut curr_data: [u8; 256] = [0; 256];
         /* If firmware supports displacement data, acquire it - otherwise implement */
         /* similar (but potentially less accurate) calculations on this processor.  */
-        if displacement_registers {
-            buffer_len = iregister_io::NAVX_REG_LAST + 1 - first_address;
-        } else {
-            buffer_len = iregister_io::NAVX_REG_QUAT_OFFSET_Z_H + 1 - first_address;
-        }
+        buffer_len = (iregister_io::NAVX_REG_LAST + 1 as u8 - first_address) as i32;
         if self.read(first_address, &mut curr_data, buffer_len) {
-            let sensor_timestamp: u32 = iregister_io::tou32(curr_data[iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address..iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address + 3]);
+            let sensor_timestamp: u32 = iregister_io::tou32(&curr_data[(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address) as usize..(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address + 3) as usize]);
             if sensor_timestamp == self.last_sensor_timestamp {
                 return;
             }
             self.last_sensor_timestamp = sensor_timestamp;
-//            self.ahrspos_update.op_status = curr_data[NAVX_REG_OP_STATUS - first_address];
-//            self. ahrspos_update.selftest_status = curr_data[NAVX_REG_SELFTEST_STATUS - first_address];
-//            self.ahrspos_update.cal_status = curr_data[NAVX_REG_CAL_STATUS];
-//            self.ahrspos_update.sensor_status = curr_data[NAVX_REG_SENSOR_STATUS_L - first_address];
-//            self.ahrspos_update.yaw = IMURegisters::decodeProtocolSignedHundredthsFloat(curr_data + NAVX_REG_YAW_L - first_address);
-//            self.ahrspos_update.pitch = IMURegisters::decodeProtocolSignedHundredthsFloat(curr_data + NAVX_REG_PITCH_L - first_address);
-//            self.ahrspos_update.roll = IMURegisters::decodeProtocolSignedHundredthsFloat(curr_data + NAVX_REG_ROLL_L - first_address);
-//            self.ahrspos_update.compass_heading = IMURegisters::decodeProtocolUnsignedHundredthsFloat(curr_data + NAVX_REG_HEADING_L - first_address);
             *self.ahrs.lock().unwrap() = AHRS::AHRS {
-                stop: self.ahrs.lock().unwrap(),
-                yaw: parse_ascii_float(curr_data[iregister_io::NAVX_REG_YAW_L - first_address..iregister_io::NAVX_REG_YAW_L - first_address + 3]),
-                pitch: parse_ascii_float(curr_data[iregister_io::NAVX_REG_PITCH_L - first_address..iregister_io::NAVX_REG_PITCH_L - first_address + 3]),
-                roll: parse_ascii_float(curr_data[iregister_io::NAVX_REG_ROLL_L - first_address..iregister_io::NAVX_REG_ROLL_L - first_address + 3]),
-                heading: parse_ascii_float(curr_data[iregister_io::NAVX_REG_HEADING_L - first_address..iregister_io::NAVX_REG_HEADING_L - first_address + 3]),
+                stop: self.ahrs.lock().unwrap().should_stop(),
+                yaw: parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_YAW_L - first_address) as usize..(iregister_io::NAVX_REG_YAW_L - first_address + 3) as usize]),
+                pitch: parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_PITCH_L - first_address) as usize..(iregister_io::NAVX_REG_PITCH_L - first_address + 3) as usize]),
+                roll: parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_ROLL_L - first_address) as usize..(iregister_io::NAVX_REG_ROLL_L - first_address + 3) as usize]),
+                heading: parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_HEADING_L - first_address) as usize..(iregister_io::NAVX_REG_HEADING_L - first_address + 3) as usize]),
             };
-//            self.ahrspos_update.mpu_temp = IMURegisters::decodeProtocolSignedHundredthsFloat(curr_data + NAVX_REG_MPU_TEMP_C_L - first_address);
-//            self.ahrspos_update.linear_accel_x = IMURegisters::decodeProtocolSignedThousandthsFloat(curr_data + NAVX_REG_LINEAR_ACC_X_L - first_address);
-//            self.ahrspos_update.linear_accel_y = IMURegisters::decodeProtocolSignedThousandthsFloat(curr_data + NAVX_REG_LINEAR_ACC_Y_L - first_address);
-//            self.ahrspos_update.linear_accel_z = IMURegisters::decodeProtocolSignedThousandthsFloat(curr_data + NAVX_REG_LINEAR_ACC_Z_L - first_address);
-//            self.ahrspos_update.altitude = IMURegisters::decodeProtocol1616Float(curr_data + NAVX_REG_ALTITUDE_D_L - first_address);
-//            self.ahrspos_update.barometric_pressure = IMURegisters::decodeProtocol1616Float(curr_data + NAVX_REG_PRESSURE_DL - first_address);
-//            self.ahrspos_update.fused_heading = IMURegisters::decodeProtocolUnsignedHundredthsFloat(curr_data + NAVX_REG_FUSED_HEADING_L - first_address);
-//            self.ahrspos_update.quat_w = iregister_io::tou16(curr_data[NAVX_REG_QUAT_W_L - first_address..NAVX_REG_QUAT_W_L - first_address + 1]) / 32768.0;
-//            self.ahrspos_update.quat_x = iregister_io::tou16(curr_data[NAVX_REG_QUAT_X_L - first_address .. NAVX_REG_QUAT_X_L - first_address + 1]) / 32768.0;
-//            self.ahrspos_update.quat_y = iregister_io::tou16(curr_data[NAVX_REG_QUAT_Y_L - first_address .. NAVX_REG_QUAT_Y_L - first_address + 1]) / 32768.0;
-//            self.ahrspos_update.quat_z = iregister_io::tou16(curr_data[NAVX_REG_QUAT_Z_L - first_address .. NAVX_REG_QUAT_Z_L - first_address + 1]) / 32768.0;
-
-
-//            self.board_state.cal_status = curr_data[NAVX_REG_CAL_STATUS - first_address];
-//            self.board_state.op_status = curr_data[NAVX_REG_OP_STATUS - first_address];
-//            self.board_state.selftest_status = curr_data[NAVX_REG_SELFTEST_STATUS - first_address];
-//            self.board_state.sensor_status = iregister_io::tou16(curr_data[NAVX_REG_SENSOR_STATUS_L - first_address .. NAVX_REG_SENSOR_STATUS_L - first_address + 1]) as i16;
-//            self.board_state.update_rate_hz = curr_data[NAVX_REG_UPDATE_RATE_HZ - first_address];
-//            self.board_state.gyro_fsr_dps = iregister_io::tou16(curr_data[NAVX_REG_GYRO_FSR_DPS_L - first_address .. NAVX_REG_GYRO_FSR_DPS_L - first_address + 1]) as i16;
-//            self.board_state.accel_fsr_g = curr_data[NAVX_REG_ACCEL_FSR_G - first_address];
-//            self.board_state.capability_flags = iregister_io::tou16(curr_data[NAVX_REG_CAPABILITY_FLAGS_L - first_address .. NAVX_REG_CAPABILITY_FLAGS_L - first_address + 1]) as i16;
-
             self.last_update_time = SystemTime::now();
             self.byte_count += buffer_len;
             self.update_count += 1;

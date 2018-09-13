@@ -7,6 +7,7 @@ use wpilib::ds::*;
 use wpilib::serial::*;
 
 mod register_io_spi;
+mod AHRS;
 
 const MESSAGE_START: u8 = b'!';
 const BINARY_MESSAGE: u8 = b'#';

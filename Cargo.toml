@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>"]
 
 [dependencies]
-wpilib = "0.2.1"
+wpilib = "0.2.2"
 cargo-frc = "0.2.1"
 libc = "0.2.43"
 

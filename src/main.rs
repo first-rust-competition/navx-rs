@@ -1,3 +1,5 @@
+#![feature(duration_as_u128)]
+
 extern crate wpilib;
 use std::{thread, time};
 use wpilib::ds::*;

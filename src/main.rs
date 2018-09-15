@@ -13,7 +13,7 @@ fn main() {
     let navx = nav_x::AHRS::AHRS::new();
 
     loop {
-        driver_station.report_error(navx.lock().unwrap().get_yaw().to_string().as_ref());
+        //driver_station.report_error(navx.lock().unwrap().get_yaw().to_string().as_ref());
         thread::sleep(time::Duration::from_millis(500));
     }
 }

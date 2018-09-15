@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use nav_x::register_io_spi;
 
+//Bas way of doing things.
 pub fn get_instance(stop: bool, yaw: f64, pitch: f64, roll: f64, heading: f64) -> AHRS {
     AHRS {
         stop,
@@ -35,7 +36,7 @@ impl AHRS {
             heading: 0.0,
         };
         let wrapped = Arc::new(Mutex::new(ahrs));
-        register_io_spi::initDefault(spi::Spi::new(spi::Port::MXP).expect("Unable to get SPI MXP port!"), wrapped.clone());
+        register_io_spi::initDefault(spi::Spi::new(spi::Port::MXP).expect("NavX: Unable to get SPI MXP port!"), wrapped.clone());
         wrapped
     }
 

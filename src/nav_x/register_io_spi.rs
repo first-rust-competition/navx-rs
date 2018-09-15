@@ -32,8 +32,6 @@ struct iregister_io {
     trace: bool,
     update_rate_hz: u8,
     last_update_time: SystemTime,
-    byte_count: i32,
-    update_count: i32,
     last_sensor_timestamp: u32,
     ahrs: Arc<Mutex<AHRS::AHRS>>,
     board_state: BoardState,
@@ -44,7 +42,8 @@ pub fn initDefault(port: spi::Spi, ahrs: Arc<Mutex<AHRS::AHRS>>) {
 }
 
 impl iregister_io {
-    //Stuff
+
+    //All constants verified!
     const MAX_SPI_MSG_LENGTH: usize = 256;
 
     //Defaults
@@ -90,11 +89,9 @@ impl iregister_io {
             port,
             bit_rate,
             rx_buffer: [0; iregister_io::MAX_SPI_MSG_LENGTH],
-            trace: false,
+            trace: true,
             update_rate_hz: 60,
             last_update_time: UNIX_EPOCH,
-            byte_count: 0,
-            update_count: 0,
             last_sensor_timestamp: 0,
             ahrs,
             board_state: BoardState {
@@ -112,23 +109,21 @@ impl iregister_io {
         thread::spawn(move || {
             register_io.init();
 
-            /* Initial Device Configuration */
             register_io.set_update_rate_hz(60);
             register_io.get_configuration();
 
-            let mut update_rate_ms = 1.0 / register_io.update_rate_hz as f32;
+            let mut update_rate_ms = 1.0 / (register_io.update_rate_hz as f32);
             if update_rate_ms > iregister_io::DELAY_OVERHEAD_MILLISECONDS {
                 update_rate_ms -= iregister_io::DELAY_OVERHEAD_MILLISECONDS;
             }
 
-            /* IO Loop */
             while !register_io.ahrs.lock().unwrap().should_stop() {
                 if register_io.board_state.update_rate_hz != register_io.update_rate_hz {
                     let update_rate = register_io.update_rate_hz;
                     register_io.set_update_rate_hz(update_rate);
                 }
                 register_io.get_current_data();
-                thread::sleep(Duration::from_millis(1000 / update_rate_ms as u64));
+                thread::sleep(Duration::from_millis((update_rate_ms * 1000.0) as u64));
             }
         });
     }
@@ -145,11 +140,13 @@ impl iregister_io {
         return true;
     }
 
+    //Verified based on c++ source.
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/src/RegisterIOSPI.cpp#L28
     pub fn write(&mut self, address: u8, value: u8) -> bool {
-        let mut cmd: [u8; 3] = [0; 3];
+        let mut cmd: Vec<u8> = vec![0; 3];
         cmd[0] = address | 0x80;
         cmd[1] = value;
-        cmd[2] = iregister_io::getCRC(&cmd[..], 3);
+        cmd[2] = iregister_io::getCRC(&cmd[..], 2);
         if self.port.write(&cmd) != 3 {
             if self.trace {
                 println!("navX-MXP SPI Write error");
@@ -160,54 +157,67 @@ impl iregister_io {
     }
 
 
-    pub fn read(&mut self, first_address: u8, buffer: &mut [u8; 256], buffer_len: i32) -> bool {
+    //Verified based on c++ source.
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/src/RegisterIOSPI.cpp#L41
+    pub fn read(&mut self, first_address: u8, buffer: &mut Vec<u8>, buffer_len: u8) -> bool {
         let mut cmd: [u8; 3] = [0; 3];
         cmd[0] = first_address;
         cmd[1] = buffer_len as u8;
-        cmd[2] = iregister_io::getCRC(&cmd[..], 3);
+        cmd[2] = iregister_io::getCRC(&cmd[..], 2);
 
         if self.port.write(&cmd) != 3 {
             return false; // WRITE ERROR
         }
 
-        thread::sleep(Duration::from_millis(1));
+        thread::sleep(Duration::from_nanos(200));
 
-        if self.port.read(true, buffer) != buffer_len + 1 {
+        //Now that this part is fixed, it should always pass this if statement when connected.
+        if self.port.read(true, &mut self.rx_buffer[0..(buffer_len + 1) as usize]) != (buffer_len + 1) as i32 {
             if self.trace {
-                println!("navX-MXP SPI Read error");
+                println!("NavX-MXP SPI Read error!");
             }
             return false; // READ ERROR
         }
-        let crc: u8 = iregister_io::getCRC(&self.rx_buffer[..], buffer_len as u32);
+
+
+        let crc: u8 = iregister_io::getCRC(&self.rx_buffer[0..(buffer_len + 1) as usize], buffer_len);
+
         if crc != self.rx_buffer[buffer_len as usize] {
             if self.trace {
+                //This is probably what is causing all the issues!
                 println!("navX-MXP SPI CRC err.  Length:  {}, Got:  {}; Calculated:  {}", buffer_len, self.rx_buffer[buffer_len as usize], crc);
             }
             return false; // CRC ERROR
         } else {
-            for i in 0..buffer_len {
+            //I wrote this part in place of memcpy.
+            //You could try libc::memcpy instead.
+            let mut pass: bool = false;
+            for i in 0..buffer_len + 1 {
                 buffer[i as usize] = self.rx_buffer[i as usize];
+                if buffer[i as usize] != 0 {
+                    pass = true;
+                }
+            }
+            if pass {
+                println!("Passed checksum and contained data!");
             }
         }
         return true;
     }
 
-
-    /*lol no. This is actually the same implementation as the original library.*/
-    pub fn shutdown(&mut self) -> bool {
-        return true;
-    }
-
+    //On by default for testing!
     pub fn enable_logging(&mut self, enable: bool) {
         self.trace = enable;
     }
 
-    fn getCRC(message: &[u8], len: u32) -> u8 {
+    //Verified based on c++ source:
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/include/IMURegisters.h#L445
+    fn getCRC(message: &[u8], len: u8) -> u8 {
         let mut crc: u8 = 0;
 
-        for i in 0..len - 1 {
+        for i in 0..len {
             crc ^= message[i as usize];
-            for _ in 0..7 {
+            for _ in 0..8 {
                 if crc & 1 == 1 {
                     crc ^= 0x91;
                 }
@@ -217,46 +227,29 @@ impl iregister_io {
         return crc;
     }
 
-
-    pub fn is_connected(&self) -> bool {
-        let time_since_last_update = SystemTime::now().duration_since(self.last_update_time).expect("Whoops, broke time.");
-        return time_since_last_update.as_millis() as f64 * 1000.0 <= iregister_io::IO_TIMEOUT_SECONDS;
-    }
-
-    pub fn get_byte_count(&self) -> i32 {
-        return self.byte_count;
-    }
-
-    pub fn get_update_count(&self) -> i32 {
-        return self.update_count;
-    }
-
     pub fn set_update_rate_hz(&mut self, update_rate: u8) {
         self.write(iregister_io::NAVX_REG_UPDATE_RATE_HZ, update_rate);
     }
 
-    pub fn ZeroYaw(&mut self) {
+    //TODO: Add callable version (from AHRS)!
+    pub fn zero_yaw(&mut self) {
         self.write(iregister_io::NAVX_REG_INTEGRATION_CTL, iregister_io::NAVX_INTEGRATION_CTL_RESET_YAW);
     }
 
-    pub fn zero_displacement(&mut self) {
-        self.write(iregister_io::NAVX_REG_INTEGRATION_CTL, iregister_io::NAVX_INTEGRATION_CTL_RESET_DISP_X |
-            iregister_io::NAVX_INTEGRATION_CTL_RESET_DISP_Y | iregister_io::NAVX_INTEGRATION_CTL_RESET_DISP_Z);
-    }
-
+    //Not sure if I still need this function, might need to remove.
     pub fn get_configuration(&mut self) -> bool {
         let mut retry_count: i32 = 0;
         while retry_count < 3 {
             let mut config: [u8; 256] = [0; 256];
-            if self.read(iregister_io::NAVX_REG_WHOAMI, &mut config, (iregister_io::NAVX_REG_SENSOR_STATUS_H + 1) as i32) {
+            if self.read(iregister_io::NAVX_REG_WHOAMI, &mut config.to_vec(),  iregister_io::NAVX_REG_SENSOR_STATUS_H + 1) {
                 self.board_state.cal_status = config[iregister_io::NAVX_REG_CAL_STATUS as usize];
                 self.board_state.op_status = config[iregister_io::NAVX_REG_OP_STATUS as usize];
                 self.board_state.selftest_status = config[iregister_io::NAVX_REG_SELFTEST_STATUS as usize];
-                self.board_state.sensor_status = iregister_io::tou16(&config[iregister_io::NAVX_REG_SENSOR_STATUS_L as usize..(iregister_io::NAVX_REG_SENSOR_STATUS_L + 1) as usize]) as i16;
-                self.board_state.gyro_fsr_dps = iregister_io::tou16(&config[iregister_io::NAVX_REG_GYRO_FSR_DPS_L as usize..(iregister_io::NAVX_REG_GYRO_FSR_DPS_L + 1) as usize]) as i16;
+                self.board_state.sensor_status = iregister_io::tou16(&config[iregister_io::NAVX_REG_SENSOR_STATUS_L as usize..(iregister_io::NAVX_REG_SENSOR_STATUS_L + 2) as usize]) as i16;
+                self.board_state.gyro_fsr_dps = iregister_io::tou16(&config[iregister_io::NAVX_REG_GYRO_FSR_DPS_L as usize..(iregister_io::NAVX_REG_GYRO_FSR_DPS_L + 2) as usize]) as i16;
                 self.board_state.accel_fsr_g = config[iregister_io::NAVX_REG_ACCEL_FSR_G as usize] as i16;
                 self.board_state.update_rate_hz = config[iregister_io::NAVX_REG_UPDATE_RATE_HZ as usize];
-                self.board_state.capability_flags = iregister_io::tou16(&config[iregister_io::NAVX_REG_CAPABILITY_FLAGS_L as usize..(iregister_io::NAVX_REG_CAPABILITY_FLAGS_L + 1) as usize]) as i16;
+                self.board_state.capability_flags = iregister_io::tou16(&config[iregister_io::NAVX_REG_CAPABILITY_FLAGS_L as usize..(iregister_io::NAVX_REG_CAPABILITY_FLAGS_L + 2) as usize]) as i16;
                 return true;
             } else {
                 thread::sleep(Duration::from_millis(50));
@@ -266,45 +259,56 @@ impl iregister_io {
         return false;
     }
 
+    //unverified (c++ original used pointer black-magic)
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/include/IMURegisters.h#L318
     fn tou16(arr: &[u8]) -> u16 {
-        return (arr[0] as u16) << 8 | arr[1] as u16;
+        return (arr[0] as u16) << 8 | (arr[1] as u16);
     }
 
+    //unverified (c++ original used pointer black-magic)
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/include/IMURegisters.h#L332
     fn tou32(arr: &[u8]) -> u32 {
         return ((arr[0] as u32) << 24) | ((arr[1] as u32) << 16) | ((arr[2] as u32) << 8) | (arr[3] as u32);
     }
 
+    //Verified for the portions I kept.
+    //https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/src/RegisterIO.cpp#L130
     pub fn get_current_data(&mut self) {
         let first_address: u8 = iregister_io::NAVX_REG_UPDATE_RATE_HZ;
-        let buffer_len: i32;
-        let mut curr_data: [u8; 256] = [0; 256];
-        /* If firmware supports displacement data, acquire it - otherwise implement */
-        /* similar (but potentially less accurate) calculations on this processor.  */
-        buffer_len = (iregister_io::NAVX_REG_LAST + 1 as u8 - first_address) as i32;
+
+        //Hard coded to match known board capabilities!
+        let buffer_len: u8 = iregister_io::NAVX_REG_LAST + 1 - first_address;
+        let mut curr_data: Vec<u8> = vec![0; (iregister_io::NAVX_REG_LAST + 1) as usize];
+
         if self.read(first_address, &mut curr_data, buffer_len) {
-            let sensor_timestamp: u32 = iregister_io::tou32(&curr_data[(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address) as usize..(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address + 3) as usize]);
-            if sensor_timestamp == self.last_sensor_timestamp {
-                return;
-            }
-            self.last_sensor_timestamp = sensor_timestamp;
+//            let sensor_timestamp: u32 = iregister_io::tou32(&curr_data[(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address) as usize..(iregister_io::NAVX_REG_TIMESTAMP_L_L - first_address + 4) as usize]);
+//            self.last_sensor_timestamp = sensor_timestamp;
+
+            //This could be the incorrect way to do this, I don't know.
             *self.ahrs.lock().unwrap() = AHRS::get_instance(
                 self.ahrs.lock().unwrap().should_stop(),
-                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_YAW_L - first_address) as usize..(iregister_io::NAVX_REG_YAW_L - first_address + 3) as usize]),
-                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_PITCH_L - first_address) as usize..(iregister_io::NAVX_REG_PITCH_L - first_address + 3) as usize]),
-                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_ROLL_L - first_address) as usize..(iregister_io::NAVX_REG_ROLL_L - first_address + 3) as usize]),
-                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_HEADING_L - first_address) as usize..(iregister_io::NAVX_REG_HEADING_L - first_address + 3) as usize]),
+                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_YAW_L - first_address) as usize..(iregister_io::NAVX_REG_YAW_L - first_address + 4) as usize]),
+                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_PITCH_L - first_address) as usize..(iregister_io::NAVX_REG_PITCH_L - first_address + 4) as usize]),
+                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_ROLL_L - first_address) as usize..(iregister_io::NAVX_REG_ROLL_L - first_address + 4) as usize]),
+                parse_ascii_float(&curr_data[(iregister_io::NAVX_REG_HEADING_L - first_address) as usize..(iregister_io::NAVX_REG_HEADING_L - first_address + 4) as usize]),
             );
+
+            //If it gets to this point, print the output for yaw.
+            println!("Yaw: {}", self.ahrs.lock().unwrap().get_yaw());
             self.last_update_time = SystemTime::now();
-            self.byte_count += buffer_len;
-            self.update_count += 1;
         }
     }
 }
 
+//Unverified!
+//https://github.com/kauailabs/navxmxp/blob/732ff85c1535ed61e572c0d7e1035320b3a1dc02/roborio/c%2B%2B/navx_frc_cpp/include/IMURegisters.h#L344
 fn parse_ascii_float(num: &[u8]) -> f64 {
     let ascii_string: String = match String::from_utf8(num.to_vec()) {
         Ok(v) => v,
         Err(_e) => "-1".to_string(),
     };
-    ascii_string.parse::<f64>().unwrap()
+     match ascii_string.parse::<f64>() {
+        Ok(v) => v,
+         Err(_) => 0.0
+    }
 }

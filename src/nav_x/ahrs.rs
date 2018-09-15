@@ -36,7 +36,10 @@ impl AHRS {
             heading: 0.0,
         };
         let wrapped = Arc::new(Mutex::new(ahrs));
-        register_io_spi::initDefault(spi::Spi::new(spi::Port::MXP).expect("NavX: Unable to get SPI MXP port!"), wrapped.clone());
+        register_io_spi::init_default(
+            spi::Spi::new(spi::Port::MXP).expect("NavX: Unable to get SPI MXP port!"),
+            wrapped.clone(),
+        );
         wrapped
     }
 

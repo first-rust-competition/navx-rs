@@ -1,12 +1,11 @@
 #![allow(dead_code)]
-extern crate wpilib;
 
 use wpilib::spi;
 
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use nav_x::register_io_spi;
+use super::register_io_spi;
 
 //Bas way of doing things.
 pub fn get_instance(stop: bool, yaw: f64, pitch: f64, roll: f64, heading: f64) -> AHRS {

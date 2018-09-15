@@ -13,7 +13,7 @@ use std::thread;
 
 use wpilib::spi;
 
-use nav_x::ahrs;
+use super::ahrs;
 
 struct BoardState {
     op_status: u8,

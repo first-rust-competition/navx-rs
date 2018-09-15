@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate libc;
 extern crate wpilib;
 
@@ -110,18 +112,24 @@ impl IRegisterIO {
             register_io.set_update_rate_hz(60);
             register_io.get_configuration();
 
-            let mut update_rate_ms = 1.0 / (register_io.update_rate_hz as f32);
+            let mut update_rate_ms = 1000. / (register_io.update_rate_hz as f32);
             if update_rate_ms > Self::DELAY_OVERHEAD_MILLISECONDS {
                 update_rate_ms -= Self::DELAY_OVERHEAD_MILLISECONDS;
             }
 
-            while !register_io.ahrs.lock().unwrap().should_stop() {
+            loop {
+                {
+                    if register_io.ahrs.lock().unwrap().should_stop() {
+                        break;
+                    }
+                }
                 if register_io.board_state.update_rate_hz != register_io.update_rate_hz {
-                    let update_rate = register_io.update_rate_hz;
+                    let update_rate = register_io.update_rate_hz.clone();
                     register_io.set_update_rate_hz(update_rate);
                 }
                 register_io.get_current_data();
-                thread::sleep(Duration::from_millis((update_rate_ms * 1000.0) as u64));
+                //TODO: do we need to worry about the time it takes to actually do the work?
+                thread::sleep(Duration::from_millis(update_rate_ms as u64));
             }
         });
     }
@@ -131,7 +139,7 @@ impl IRegisterIO {
         self.port.set_msb_first();
         self.port.set_sample_data_on_trailing_edge();
         self.port.set_clock_active_low();
-        self.port.set_chip_select_active_low();
+        self.port.set_chip_select_active_low().unwrap();
         if self.trace {
             println!(
                 "navX-MXP:  Initialized SPI communication at bitrate {}",
@@ -301,7 +309,7 @@ impl IRegisterIO {
     pub fn get_current_data(&mut self) {
         let first_address: u8 = Self::NAVX_REG_UPDATE_RATE_HZ;
 
-        //Hard coded to match known board capabilities!
+        //Hard coded to match known board capabilities!, see source link above
         let buffer_len: u8 = Self::NAVX_REG_LAST + 1 - first_address;
         let mut curr_data: Vec<u8> = vec![0; (Self::NAVX_REG_LAST + 1) as usize];
 
@@ -332,6 +340,7 @@ impl IRegisterIO {
 
             //If it gets to this point, print the output for yaw.
             println!("Yaw: {}", self.ahrs.lock().unwrap().get_yaw());
+            //TODO: Replace with RobotBase::FPGA stamp
             self.last_update_time = SystemTime::now();
         }
     }

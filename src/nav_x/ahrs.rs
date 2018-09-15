@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 extern crate wpilib;
 
 use wpilib::spi;

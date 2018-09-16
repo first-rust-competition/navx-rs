@@ -178,24 +178,117 @@ impl<'a> StateCoordinator<'a> {
         ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
+    #[inline(always)]
+    fn set_ahrs_base(ahrs: &mut AhrsState, ahrs_update: &ahrs::AHRSUpdateBase) {
+        /* Update base IMU class variables */
+
+        ahrs.yaw = ahrs_update.yaw;
+        ahrs.pitch = ahrs_update.pitch;
+        ahrs.roll = ahrs_update.roll;
+        ahrs.compass_heading = ahrs_update.compass_heading;
+        // ahrs.yaw_offset_tracker->UpdateHistory(ahrs_update.yaw);
+
+        /* Update AHRS class variables */
+
+        // 9-axis data
+        ahrs.fused_heading = ahrs_update.fused_heading;
+
+        // Gravity-corrected linear acceleration (world-frame)
+        ahrs.world_linear_accel_x = ahrs_update.linear_accel_x;
+        ahrs.world_linear_accel_y = ahrs_update.linear_accel_y;
+        ahrs.world_linear_accel_z = ahrs_update.linear_accel_z;
+
+        // Gyro/Accelerometer Die Temperature
+        ahrs.mpu_temp_c = ahrs_update.mpu_temp;
+
+        // Barometric Pressure/Altitude
+        ahrs.altitude = ahrs_update.altitude;
+        ahrs.baro_pressure = ahrs_update.barometric_pressure;
+
+        // Status/Motion Detection
+        ahrs.is_moving =
+            ahrs_update.sensor_status & self::protocol::registers::NAVX_SENSOR_STATUS_MOVING != 0;
+        ahrs.is_rotating = !(ahrs_update.sensor_status
+            & self::protocol::registers::NAVX_SENSOR_STATUS_YAW_STABLE
+            != 0);
+        ahrs.altitude_valid = ahrs_update.sensor_status
+            & self::protocol::registers::NAVX_SENSOR_STATUS_ALTITUDE_VALID
+            != 0;
+        ahrs.is_magnetometer_calibrated = ahrs_update.cal_status
+            & self::protocol::registers::NAVX_CAL_STATUS_MAG_CAL_COMPLETE
+            != 0;
+        ahrs.magnetic_disturbance = ahrs_update.sensor_status
+            & self::protocol::registers::NAVX_SENSOR_STATUS_MAG_DISTURBANCE
+            != 0;
+
+        ahrs.quaternion_w = ahrs_update.quat_w;
+        ahrs.quaternion_x = ahrs_update.quat_x;
+        ahrs.quaternion_y = ahrs_update.quat_y;
+        ahrs.quaternion_z = ahrs_update.quat_z;
+    }
+
     fn set_ahrs_pos(&self, ahrs_update: &ahrs::AHRSPosUpdate, sensor_timestamp: u64) {
-        unimplemented!()
+        let mut ahrs = self.0.lock();
+
+        Self::set_ahrs_base(&mut ahrs, &ahrs_update.base);
+
+        ahrs.last_sensor_timestamp = sensor_timestamp;
+
+        ahrs.velocity[0] = ahrs_update.vel_x;
+        ahrs.velocity[1] = ahrs_update.vel_y;
+        ahrs.velocity[2] = ahrs_update.vel_z;
+        ahrs.displacement[0] = ahrs_update.disp_x;
+        ahrs.displacement[1] = ahrs_update.disp_y;
+        ahrs.displacement[2] = ahrs_update.disp_z;
+
+        ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
     fn set_raw_data(&self, raw_data_update: &imu::GyroUpdate, sensor_timestamp: u64) {
-        unimplemented!()
+        let mut ahrs = self.0.lock();
+        ahrs.raw_gyro_x = raw_data_update.gyro_x;
+        ahrs.raw_gyro_y = raw_data_update.gyro_y;
+        ahrs.raw_gyro_z = raw_data_update.gyro_z;
+        ahrs.raw_accel_x = raw_data_update.accel_x;
+        ahrs.raw_accel_y = raw_data_update.accel_y;
+        ahrs.raw_accel_z = raw_data_update.accel_z;
+        ahrs.cal_mag_x = raw_data_update.mag_x;
+        ahrs.cal_mag_y = raw_data_update.mag_y;
+        ahrs.cal_mag_z = raw_data_update.mag_z;
+        ahrs.mpu_temp_c = raw_data_update.temp_c;
+
+        ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
     fn set_ahrs_data(&self, ahrs_update: ahrs::AHRSUpdate, sensor_timestamp: u64) {
-        unimplemented!()
+        let mut ahrs = self.0.lock();
+        Self::set_ahrs_base(&mut ahrs, &ahrs_update.base);
+        // Magnetometer Data
+        ahrs.cal_mag_x = ahrs_update.cal_mag_x;
+        ahrs.cal_mag_y = ahrs_update.cal_mag_y;
+        ahrs.cal_mag_z = ahrs_update.cal_mag_z;
+
+        ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
     fn set_board_id(&self, board_id: ahrs::BoardID) {
-        unimplemented!()
+        let mut ahrs = self.0.lock();
+        ahrs.board_type = board_id.type_;
+        ahrs.hw_rev = board_id.hw_rev;
+        ahrs.fw_ver_major = board_id.fw_ver_major;
+        ahrs.fw_ver_minor = board_id.fw_ver_minor;
     }
 
     fn set_board_state(&self, board_state: BoardState) {
-        unimplemented!()
+        let mut ahrs = self.0.lock();
+        ahrs.update_rate_hz = board_state.update_rate_hz;
+        ahrs.accel_fsr_g = board_state.accel_fsr_g;
+        ahrs.gyro_fsr_dps = board_state.gyro_fsr_dps;
+        ahrs.capability_flags = board_state.capability_flags;
+        ahrs.op_status = board_state.op_status;
+        ahrs.sensor_status = board_state.sensor_status;
+        ahrs.cal_status = board_state.cal_status;
+        ahrs.selftest_status = board_state.selftest_status;
     }
 
     fn omni_mount_supported(&self) -> bool {

@@ -308,7 +308,7 @@ pub struct AHRSUpdateBase {
     pub cal_status: u8,
     pub selftest_status: u8,
 }
-
+#[derive(Debug, Default, Clone)]
 pub struct AHRSUpdate {
     pub base: AHRSUpdateBase,
     pub cal_mag_x: i16,
@@ -321,6 +321,7 @@ pub struct AHRSUpdate {
     pub raw_mag_z: i16,
 }
 
+#[derive(Debug, Default, Clone)]
 pub struct AHRSPosUpdate {
     pub base: AHRSUpdateBase,
     pub vel_x: f32,
@@ -330,12 +331,12 @@ pub struct AHRSPosUpdate {
     pub disp_y: f32,
     pub disp_z: f32,
 }
-
+#[derive(Debug, Default, Clone)]
 pub struct AHRSPosTSUpdate {
     pos_upd: AHRSPosUpdate,
     timestamp: u32,
 }
-
+#[derive(Debug, Default, Clone)]
 pub struct BoardID {
     pub type_: u8,
     pub hw_rev: u8,
@@ -344,7 +345,7 @@ pub struct BoardID {
     pub fw_revision: i16,
     pub unique_id: [u8; 12],
 }
-
+#[derive(Debug, Default, Clone)]
 pub struct IntegrationControl {
     action: u8,
     parameter: i32,

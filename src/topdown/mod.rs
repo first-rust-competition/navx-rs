@@ -31,54 +31,130 @@ impl<IO: IOProvider> AHRS<IO> {
 }
 
 pub trait IOProvider {
-    fn is_connected() -> bool;
-    fn byte_count() -> f64;
-    fn update_count() -> f64;
-    fn set_update_rate_hz(update_rate: u8);
-    fn zero_yaw();
-    fn zero_displacement();
-    fn run();
-    fn stop();
-    fn enable_logging(enable: bool);
+    fn is_connected(&self) -> bool;
+    fn byte_count(&self) -> i32;
+    fn update_count(&self) -> i32;
+    fn set_update_rate_hz(&mut self, update_rate: u8);
+    fn zero_yaw(&mut self);
+    fn zero_displacement(&mut self);
+    fn run(&mut self);
+    fn stop(&mut self);
+    fn enable_logging(&mut self, enable: bool);
 }
 
-pub struct RegisterIO<H: RegisterProtocol> {
-    temp: H,
+pub struct RegisterIO<'a, H: RegisterProtocol> {
+    io_provider: H,
+    update_rate_hz: u8,
+    stop: bool,
+    raw_data_update: imu::GyroUpdate,
+    ahrs_update: ahrs::AHRSUpdate,
+    ahrspos_update: ahrs::AHRSPosUpdate,
+    coordinator: StateCoordinator<'a>,
+    board_state: BoardState,
+    last_update_time: Duration,
+    byte_count: i32,
+    update_count: i32,
+    last_sensor_timestamp: u64,
 }
 
-impl<H: RegisterProtocol> RegisterIO<H> {
-    pub fn new(io_provider: H, update_rate_hz: u8) {
+use std::time::Duration;
+
+impl<'a, H: RegisterProtocol> RegisterIO<'a, H> {
+    pub fn new(io_provider: H, update_rate_hz: u8, coordinator: StateCoordinator<'a>) -> Self {
+        RegisterIO {
+            io_provider,
+            update_rate_hz,
+            stop: false,
+            raw_data_update: Default::default(),
+            ahrs_update: Default::default(),
+            ahrspos_update: Default::default(),
+            coordinator,
+            board_state: Default::default(),
+            last_update_time: Default::default(),
+            byte_count: Default::default(),
+            update_count: Default::default(),
+            last_sensor_timestamp: Default::default(),
+        }
+    }
+
+    fn get_configuration(&mut self) -> bool {
         unimplemented!()
     }
+
+    fn get_current_data(&mut self) -> bool {
+        unimplemented!()
+    }
+
+    const IO_TIMEOUT: Duration = Duration::from_millis(1000);
+    const DELAY_OVERHEAD_MILLISECONDS: f64 = 4.0;
 }
 
-impl<H: RegisterProtocol> IOProvider for RegisterIO<H> {
-    fn is_connected() -> bool {
-        unimplemented!()
+use std::thread;
+use wpilib::RobotBase;
+
+impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<'a, H> {
+    fn is_connected(&self) -> bool {
+        RobotBase::fpga_time_duration().unwrap_or(Duration::default()) - self.last_update_time
+            < Self::IO_TIMEOUT
     }
-    fn byte_count() -> f64 {
-        unimplemented!()
+    fn byte_count(&self) -> i32 {
+        self.byte_count
     }
-    fn update_count() -> f64 {
-        unimplemented!()
+    fn update_count(&self) -> i32 {
+        self.update_count
     }
-    fn set_update_rate_hz(update_rate: u8) {
-        unimplemented!()
+    fn set_update_rate_hz(&mut self, update_rate: u8) {
+        self.io_provider
+            .write(registers::NAVX_REG_UPDATE_RATE_HZ, update_rate);
     }
-    fn zero_yaw() {
-        unimplemented!()
+    fn zero_yaw(&mut self) {
+        self.io_provider.write(
+            registers::NAVX_REG_INTEGRATION_CTL,
+            registers::NAVX_INTEGRATION_CTL_RESET_YAW,
+        );
+        // notify_sink->YawResetComplete();
     }
-    fn zero_displacement() {
-        unimplemented!()
+    fn zero_displacement(&mut self) {
+        self.io_provider.write(
+            registers::NAVX_REG_INTEGRATION_CTL,
+            registers::NAVX_INTEGRATION_CTL_RESET_DISP_X
+                | registers::NAVX_INTEGRATION_CTL_RESET_DISP_Y
+                | registers::NAVX_INTEGRATION_CTL_RESET_DISP_Z,
+        );
     }
-    fn run() {
-        unimplemented!()
+
+    /// Main thread loop
+    fn run(&mut self) {
+        self.io_provider.init();
+        /* Initial Device Configuration */
+        let rate = self.update_rate_hz;
+        self.set_update_rate_hz(rate);
+        self.get_configuration();
+
+        let mut update_rate_ms = 1.0 / self.update_rate_hz as f64;
+        if update_rate_ms > Self::DELAY_OVERHEAD_MILLISECONDS {
+            update_rate_ms -= Self::DELAY_OVERHEAD_MILLISECONDS;
+        }
+
+        /* IO Loop */
+        while !self.stop {
+            if self.board_state.update_rate_hz != self.update_rate_hz {
+                let rate = self.update_rate_hz;
+                self.set_update_rate_hz(rate);
+            }
+            self.get_current_data();
+            thread::sleep(Duration::from_millis(update_rate_ms as u64));
+        }
     }
-    fn stop() {
-        unimplemented!()
+
+    // if anyone actually uses this, stop will probably become Arc<AtomicBool>
+    // TODO that
+    fn stop(&mut self) {
+        self.stop = true;
     }
-    fn enable_logging(enable: bool) {
-        unimplemented!()
+
+    fn enable_logging(&mut self, enable: bool) {
+        self.io_provider.enable_logging(enable);
     }
 }
 
@@ -201,6 +277,7 @@ impl RegisterProtocol for RegisterIOSPI {
 use parking_lot::Mutex;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Default)]
 struct BoardState {
     op_status: u8,
     sensor_status: i16,

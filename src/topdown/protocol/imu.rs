@@ -70,7 +70,7 @@ pub const NAV6_CALIBRATION_STATE_ACCUMULATE: u32 = 1;
 pub const NAV6_CALIBRATION_STATE_COMPLETE: u32 = 2;
 pub const IMU_PROTOCOL_MAX_MESSAGE_LENGTH: u32 = QUATERNION_UPDATE_MESSAGE_LENGTH;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct YPRUpdate {
     pub yaw: f32,
     pub pitch: f32,
@@ -78,7 +78,7 @@ pub struct YPRUpdate {
     pub compass_heading: f32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct GyroUpdate {
     pub gyro_x: i16,
     pub gyro_y: i16,
@@ -92,7 +92,7 @@ pub struct GyroUpdate {
     pub temp_c: f32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct QuaternionUpdate {
     pub q1: i16,
     pub q2: i16,
@@ -107,7 +107,7 @@ pub struct QuaternionUpdate {
     pub temp_c: f32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct StreamResponse {
     pub stream_type: u8,
     pub gyro_fsr_dps: i16,

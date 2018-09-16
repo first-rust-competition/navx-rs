@@ -82,11 +82,121 @@ impl<H: RegisterProtocol> IOProvider for RegisterIO<H> {
     }
 }
 
-pub trait RegisterProtocol {}
+pub trait RegisterProtocol {
+    fn init(&mut self) -> bool;
+    fn write(&mut self, address: u8, value: u8) -> bool;
+    fn read(&mut self, first_address: u8, buf: &mut [u8]) -> bool;
+    fn shutdown(&mut self) -> bool;
+    fn enable_logging(&mut self, enable: bool);
+}
 
-pub struct RegisterIOSPI {}
+use wpilib::spi::Spi;
+const MAX_SPI_MSG_LENGTH: usize = 256;
+pub struct RegisterIOSPI {
+    port: Spi,
+    bitrate: u32,
+    rx_buf: [u8; MAX_SPI_MSG_LENGTH],
+    trace: bool,
+}
 
-impl RegisterProtocol for RegisterIOSPI {}
+impl RegisterIOSPI {
+    pub fn new(port: Spi, bitrate: u32) -> Self {
+        RegisterIOSPI {
+            port,
+            bitrate,
+            rx_buf: [0; MAX_SPI_MSG_LENGTH],
+            trace: false,
+        }
+    }
+}
+
+use self::protocol::registers;
+use std::mem::size_of_val;
+
+//IDK but they do this
+//TODO: look into this
+static SPI_EX: Mutex<()> = Mutex::new(());
+
+impl RegisterProtocol for RegisterIOSPI {
+    fn init(&mut self) -> bool {
+        self.port.set_clock_rate(self.bitrate as f64);
+        self.port.set_msb_first();
+        self.port.set_sample_data_on_trailing_edge();
+        self.port.set_clock_active_low();
+        //TODO return result
+        self.port.set_chip_select_active_low().unwrap();
+        if self.trace {
+            println!(
+                "navX-MXP:  Initialized SPI communication at bitrate {}\n",
+                self.bitrate
+            );
+        }
+        return true;
+    }
+
+    fn write(&mut self, address: u8, value: u8) -> bool {
+        let lock = SPI_EX.lock();
+        let mut cmd = [0u8; 3];
+        // srsly where the f does this come from
+        cmd[0] = address | 0x80;
+        cmd[1] = value;
+        cmd[2] = registers::getCRC(&cmd[..], 2);
+        if self.port.write(&cmd[..]) as usize != size_of_val(&cmd) {
+            if self.trace {
+                //TODO: replace with the proper logging crate
+                println!("navX-MXP SPI Write error\n");
+            }
+            return false; // WRITE ERROR
+        }
+        return true;
+    }
+
+    fn read(&mut self, first_address: u8, buf: &mut [u8]) -> bool {
+        let lock = SPI_EX.lock();
+        let mut cmd = [0u8; 3];
+        cmd[0] = first_address;
+        cmd[1] = buf.len() as u8;
+        cmd[2] = registers::getCRC(&cmd[..], 2);
+        if self.port.write(&cmd[..]) as usize != size_of_val(&cmd) {
+            return false; // WRITE ERROR
+        }
+        // delay 200 us /* TODO:  What is min. granularity of delay()? */
+        // ok fr that comment is from the original source. Why is the actual delay 5x longer than the comment?
+        ::std::thread::sleep(::std::time::Duration::from_millis(1));
+        if self.port.read(true, &mut self.rx_buf[..buf.len() + 1]) as usize != buf.len() + 1 {
+            if self.trace {
+                println!("navX-MXP SPI Read error\n");
+            }
+            return false; // READ ERROR
+        }
+        let crc = registers::getCRC(&self.rx_buf[..], buf.len() as u8);
+        if crc != self.rx_buf[buf.len()] {
+            if self.trace {
+                println!(
+                    "navX-MXP SPI CRC err.  Length:  {}, Got:  {}; Calculated:  {}\n",
+                    buf.len(),
+                    self.rx_buf[buf.len()],
+                    crc
+                );
+            }
+            return false; // CRC ERROR
+        } else {
+            let len = buf.len();
+            buf.copy_from_slice(&self.rx_buf[..len]);
+        }
+        return true;
+    }
+
+    // idk man
+    fn shutdown(&mut self) -> bool {
+        true
+    }
+    fn enable_logging(&mut self, enable: bool) {
+        self.trace = enable;
+    }
+}
+
+// ==== Interthread communication stuff ====
 
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -161,9 +271,8 @@ struct AhrsState {
     pub last_update_time: f64,
 }
 
-use self::protocol::imu;
-
 use self::protocol::ahrs;
+use self::protocol::imu;
 
 #[derive(Debug, Clone)]
 pub struct StateCoordinator<'a>(&'a Mutex<AhrsState>);

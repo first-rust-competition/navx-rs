@@ -6,7 +6,6 @@ extern crate byteorder;
 extern crate derive_more;
 #[macro_use]
 extern crate shrinkwraprs;
-#[cfg(not(test))]
 extern crate wpilib;
 
 extern crate parking_lot;

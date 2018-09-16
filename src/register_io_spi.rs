@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 extern crate libc;
-extern crate wpilib;
 
 use std::time::Duration;
 use std::time::SystemTime;

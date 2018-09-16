@@ -408,7 +408,7 @@ pub fn buildCRCLookupTable(table: &mut [u8]) {
     if length == 256 {
         for i in 0..length {
             crc = i as u8;
-            for j in 0..8 {
+            for _ in 0..8 {
                 if crc & 1 != 0 {
                     crc ^= CRC7_POLY;
                 }
@@ -434,7 +434,7 @@ pub fn getCRC(message: &[u8], length: u8) -> u8 {
 
     for i in 0..length {
         crc ^= message[i as usize];
-        for j in 0..8 {
+        for _ in 0..8 {
             if crc & 1 != 0 {
                 crc ^= CRC7_POLY;
             }

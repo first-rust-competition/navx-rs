@@ -49,6 +49,7 @@ pub struct RegisterIO<'a, H: RegisterProtocol> {
     raw_data_update: imu::GyroUpdate,
     ahrs_update: ahrs::AHRSUpdate,
     ahrspos_update: ahrs::AHRSPosUpdate,
+    board_id: ahrs::BoardID,
     coordinator: StateCoordinator<'a>,
     board_state: BoardState,
     last_update_time: Duration,
@@ -70,6 +71,7 @@ impl<'a, H: RegisterProtocol> RegisterIO<'a, H> {
             ahrspos_update: Default::default(),
             coordinator,
             board_state: Default::default(),
+            board_id: Default::default(),
             last_update_time: Default::default(),
             byte_count: Default::default(),
             update_count: Default::default(),
@@ -78,11 +80,208 @@ impl<'a, H: RegisterProtocol> RegisterIO<'a, H> {
     }
 
     fn get_configuration(&mut self) -> bool {
-        unimplemented!()
+        use self::protocol::registers::*;
+        let mut success = false;
+        let mut retry_count = 0;
+        while retry_count < 3 && !success {
+            let mut config = [0u8, NAVX_REG_SENSOR_STATUS_H as u8 + 1];
+            if self
+                .io_provider
+                .read(NAVX_REG_WHOAMI as u8, &mut config[..])
+            {
+                self.board_id.hw_rev = config[NAVX_REG_HW_REV];
+                self.board_id.fw_ver_major = config[NAVX_REG_FW_VER_MAJOR];
+                self.board_id.fw_ver_minor = config[NAVX_REG_FW_VER_MINOR];
+                self.board_id.type_ = config[NAVX_REG_WHOAMI];
+                self.coordinator.set_board_id(&self.board_id);
+
+                self.board_state.cal_status = config[NAVX_REG_CAL_STATUS];
+                self.board_state.op_status = config[NAVX_REG_OP_STATUS];
+                self.board_state.selftest_status = config[NAVX_REG_SELFTEST_STATUS];
+                // these weird casts translate the C++ as written
+                // pls kuailabs do more code reviews or something
+                self.board_state.sensor_status =
+                    registers::dec_prot_u16(&config[NAVX_REG_SENSOR_STATUS_L..]) as i16;
+                self.board_state.gyro_fsr_dps =
+                    registers::dec_prot_u16(&config[NAVX_REG_GYRO_FSR_DPS_L..]) as i16;
+                self.board_state.accel_fsr_g = config[NAVX_REG_ACCEL_FSR_G] as i16;
+                self.board_state.update_rate_hz = config[NAVX_REG_UPDATE_RATE_HZ];
+                self.board_state.capability_flags =
+                    registers::dec_prot_u16(&config[NAVX_REG_CAPABILITY_FLAGS_L..]) as i16;
+                self.coordinator.set_board_state(&self.board_state);
+                success = true;
+            } else {
+                success = false;
+                thread::sleep(Duration::from_millis(50));
+            }
+            retry_count += 1;
+        }
+        return success;
     }
 
-    fn get_current_data(&mut self) -> bool {
-        unimplemented!()
+    fn get_current_data(&mut self) {
+        use self::registers::*;
+        let first_address = NAVX_REG_UPDATE_RATE_HZ as usize;
+        let displacement_registers = self.coordinator.displacement_supported();
+        let buffer_len: u8;
+        let mut curr_data = [0u8, NAVX_REG_LAST as u8 + 1];
+        /* If firmware supports displacement data, acquire it - otherwise implement */
+        /* similar (but potentially less accurate) calculations on this processor.  */
+        if displacement_registers {
+            buffer_len = NAVX_REG_LAST as u8 + 1 - first_address as u8;
+        } else {
+            buffer_len = NAVX_REG_QUAT_OFFSET_Z_H as u8 + 1 - first_address as u8;
+        }
+
+        if self
+            .io_provider
+            .read(first_address as u8, &mut curr_data[..buffer_len as usize])
+        {
+            let sensor_timestamp: u64 =
+                registers::dec_prot_u32(&curr_data[NAVX_REG_TIMESTAMP_L_L - first_address..])
+                    as u64;
+            if sensor_timestamp == self.last_sensor_timestamp {
+                return;
+            }
+            self.last_sensor_timestamp = sensor_timestamp as u64;
+            self.ahrspos_update.base.op_status = curr_data[NAVX_REG_OP_STATUS - first_address];
+            self.ahrspos_update.base.selftest_status =
+                curr_data[NAVX_REG_SELFTEST_STATUS - first_address];
+            self.ahrspos_update.base.cal_status = curr_data[NAVX_REG_CAL_STATUS];
+            self.ahrspos_update.base.sensor_status =
+                curr_data[NAVX_REG_SENSOR_STATUS_L - first_address];
+            self.ahrspos_update.base.yaw = registers::dec_prot_signed_hundreths_float(
+                &curr_data[NAVX_REG_YAW_L - first_address..],
+            );
+            self.ahrspos_update.base.pitch = registers::dec_prot_signed_hundreths_float(
+                &curr_data[NAVX_REG_PITCH_L - first_address..],
+            );
+            self.ahrspos_update.base.roll = registers::dec_prot_signed_hundreths_float(
+                &curr_data[NAVX_REG_ROLL_L - first_address..],
+            );
+            self.ahrspos_update.base.compass_heading =
+                registers::decodeProtocolUnsignedHundredthsFloat(
+                    &curr_data[NAVX_REG_HEADING_L - first_address..],
+                );
+            self.ahrspos_update.base.mpu_temp = registers::dec_prot_signed_hundreths_float(
+                &curr_data[NAVX_REG_MPU_TEMP_C_L - first_address..],
+            );
+            self.ahrspos_update.base.linear_accel_x =
+                registers::decodeProtocolSignedThousandthsFloat(
+                    &curr_data[NAVX_REG_LINEAR_ACC_X_L - first_address..],
+                );
+            self.ahrspos_update.base.linear_accel_y =
+                registers::decodeProtocolSignedThousandthsFloat(
+                    &curr_data[NAVX_REG_LINEAR_ACC_Y_L - first_address..],
+                );
+            self.ahrspos_update.base.linear_accel_z =
+                registers::decodeProtocolSignedThousandthsFloat(
+                    &curr_data[NAVX_REG_LINEAR_ACC_Z_L - first_address..],
+                );
+            self.ahrspos_update.base.altitude = registers::decodeProtocol1616Float(
+                &curr_data[NAVX_REG_ALTITUDE_D_L - first_address..],
+            );
+            self.ahrspos_update.base.barometric_pressure = registers::decodeProtocol1616Float(
+                &curr_data[NAVX_REG_PRESSURE_DL - first_address..],
+            );
+            self.ahrspos_update.base.fused_heading =
+                registers::decodeProtocolUnsignedHundredthsFloat(
+                    &curr_data[NAVX_REG_FUSED_HEADING_L - first_address..],
+                );
+            self.ahrspos_update.base.quat_w =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_QUAT_W_L - first_address..]) as f32
+                    / 32768.;
+            self.ahrspos_update.base.quat_x =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_QUAT_X_L - first_address..]) as f32
+                    / 32768.;
+            self.ahrspos_update.base.quat_y =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_QUAT_Y_L - first_address..]) as f32
+                    / 32768.;
+            self.ahrspos_update.base.quat_z =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_QUAT_Z_L - first_address..]) as f32
+                    / 32768.;
+            if displacement_registers {
+                self.ahrspos_update.vel_x = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_VEL_X_I_L - first_address..],
+                );
+                self.ahrspos_update.vel_y = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_VEL_Y_I_L - first_address..],
+                );
+                self.ahrspos_update.vel_z = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_VEL_Z_I_L - first_address..],
+                );
+                self.ahrspos_update.disp_x = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_DISP_X_I_L - first_address..],
+                );
+                self.ahrspos_update.disp_y = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_DISP_Y_I_L - first_address..],
+                );
+                self.ahrspos_update.disp_z = registers::decodeProtocol1616Float(
+                    &curr_data[NAVX_REG_DISP_Z_I_L - first_address..],
+                );
+                self.coordinator
+                    .set_ahrs_pos(&self.ahrspos_update, sensor_timestamp);
+            } else {
+                self.ahrs_update.base.op_status = self.ahrspos_update.base.op_status;
+                self.ahrs_update.base.selftest_status = self.ahrspos_update.base.selftest_status;
+                self.ahrs_update.base.cal_status = self.ahrspos_update.base.cal_status;
+                self.ahrs_update.base.sensor_status = self.ahrspos_update.base.sensor_status;
+                self.ahrs_update.base.yaw = self.ahrspos_update.base.yaw;
+                self.ahrs_update.base.pitch = self.ahrspos_update.base.pitch;
+                self.ahrs_update.base.roll = self.ahrspos_update.base.roll;
+                self.ahrs_update.base.compass_heading = self.ahrspos_update.base.compass_heading;
+                self.ahrs_update.base.mpu_temp = self.ahrspos_update.base.mpu_temp;
+                self.ahrs_update.base.linear_accel_x = self.ahrspos_update.base.linear_accel_x;
+                self.ahrs_update.base.linear_accel_y = self.ahrspos_update.base.linear_accel_y;
+                self.ahrs_update.base.linear_accel_z = self.ahrspos_update.base.linear_accel_z;
+                self.ahrs_update.base.altitude = self.ahrspos_update.base.altitude;
+                self.ahrs_update.base.barometric_pressure =
+                    self.ahrspos_update.base.barometric_pressure;
+                self.ahrs_update.base.fused_heading = self.ahrspos_update.base.fused_heading;
+                self.coordinator
+                    .set_ahrs_data(&self.ahrs_update, sensor_timestamp);
+            }
+
+            // again with the weird casts
+            self.board_state.cal_status = curr_data[NAVX_REG_CAL_STATUS - first_address];
+            self.board_state.op_status = curr_data[NAVX_REG_OP_STATUS - first_address];
+            self.board_state.selftest_status = curr_data[NAVX_REG_SELFTEST_STATUS - first_address];
+            self.board_state.sensor_status =
+                registers::dec_prot_u16(&curr_data[NAVX_REG_SENSOR_STATUS_L - first_address..])
+                    as i16;
+            self.board_state.update_rate_hz = curr_data[NAVX_REG_UPDATE_RATE_HZ - first_address];
+            self.board_state.gyro_fsr_dps =
+                registers::dec_prot_u16(&curr_data[NAVX_REG_GYRO_FSR_DPS_L - first_address..])
+                    as i16;
+            self.board_state.accel_fsr_g = curr_data[NAVX_REG_ACCEL_FSR_G - first_address] as i16;
+            self.board_state.capability_flags =
+                registers::dec_prot_u16(&curr_data[NAVX_REG_CAPABILITY_FLAGS_L - first_address..])
+                    as i16;
+            self.coordinator.set_board_state(&self.board_state);
+
+            self.raw_data_update.gyro_x =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_GYRO_X_L - first_address..]);
+            self.raw_data_update.gyro_y =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_GYRO_Y_L - first_address..]);
+            self.raw_data_update.gyro_z =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_GYRO_Z_L - first_address..]);
+            self.raw_data_update.accel_x =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_ACC_X_L - first_address..]);
+            self.raw_data_update.accel_y =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_ACC_Y_L - first_address..]);
+            self.raw_data_update.accel_z =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_ACC_Z_L - first_address..]);
+            self.raw_data_update.mag_x =
+                registers::dec_prot_i16(&curr_data[NAVX_REG_MAG_X_L - first_address..]);
+            self.raw_data_update.temp_c = self.ahrspos_update.base.mpu_temp;
+            self.coordinator
+                .set_raw_data(&self.raw_data_update, sensor_timestamp);
+
+            self.last_update_time =
+                RobotBase::fpga_time_duration().unwrap_or(Duration::from_millis(0));
+            self.byte_count += buffer_len as i32;
+            self.update_count += 1;
+        }
     }
 
     const IO_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -105,7 +304,7 @@ impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<'a, H> {
     }
     fn set_update_rate_hz(&mut self, update_rate: u8) {
         self.io_provider
-            .write(registers::NAVX_REG_UPDATE_RATE_HZ, update_rate);
+            .write(registers::NAVX_REG_UPDATE_RATE_HZ as u8, update_rate);
     }
     fn zero_yaw(&mut self) {
         self.io_provider.write(
@@ -446,7 +645,7 @@ impl<'a> StateCoordinator<'a> {
         ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
-    fn set_ahrs_data(&self, ahrs_update: ahrs::AHRSUpdate, sensor_timestamp: u64) {
+    fn set_ahrs_data(&self, ahrs_update: &ahrs::AHRSUpdate, sensor_timestamp: u64) {
         let mut ahrs = self.0.lock();
         Self::set_ahrs_base(&mut ahrs, &ahrs_update.base);
         // Magnetometer Data
@@ -457,7 +656,7 @@ impl<'a> StateCoordinator<'a> {
         ahrs.last_sensor_timestamp = sensor_timestamp;
     }
 
-    fn set_board_id(&self, board_id: ahrs::BoardID) {
+    fn set_board_id(&self, board_id: &ahrs::BoardID) {
         let mut ahrs = self.0.lock();
         ahrs.board_type = board_id.type_;
         ahrs.hw_rev = board_id.hw_rev;
@@ -465,7 +664,7 @@ impl<'a> StateCoordinator<'a> {
         ahrs.fw_ver_minor = board_id.fw_ver_minor;
     }
 
-    fn set_board_state(&self, board_state: BoardState) {
+    fn set_board_state(&self, board_state: &BoardState) {
         let mut ahrs = self.0.lock();
         ahrs.update_rate_hz = board_state.update_rate_hz;
         ahrs.accel_fsr_g = board_state.accel_fsr_g;

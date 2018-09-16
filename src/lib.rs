@@ -10,18 +10,22 @@ extern crate wpilib;
 use wpilib::spi;
 
 mod protocol;
+use std::thread;
 
 pub struct AHRS<IO: IOProvider> {
-    temp: IO,
+    io: Option<IO>,
+    io_thread: Option<thread::JoinHandle<()>>,
+    coordinator: StateCoordinator,
 }
 
 impl<IO: IOProvider> AHRS<IO> {
-    pub fn from_spi_minutiae(port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) -> Self {
-        unimplemented!()
-    }
-
-    pub fn get_yaw(&self) -> f64 {
-        unimplemented!()
+    pub fn get_yaw(&self) -> f32 {
+        let ahrs = self.coordinator.lock();
+        if self.coordinator.board_yaw_reset_supported() {
+            ahrs.yaw
+        } else {
+            panic!()
+        }
     }
 
     pub fn zero_yaw(&self) -> f64 {
@@ -37,6 +41,27 @@ impl<IO: IOProvider> AHRS<IO> {
         unimplemented!()
     }
 }
+impl<'a> AHRS<RegisterIO<RegisterIOSPI>> {
+    pub fn from_spi_minutiae(port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) -> Self {
+        let u = Arc::new(Mutex::new(AhrsState::default()));
+        let u_ = u.clone();
+        let ahrs = Self {
+            io: None,
+            io_thread: Some(thread::spawn(move || {
+                let mut io = RegisterIO::new(
+                    RegisterIOSPI::new(wpilib::spi::Spi::new(port).unwrap(), spi_bitrate),
+                    update_rate_hz,
+                    StateCoordinator(u_),
+                );
+                io.run();
+            })),
+            coordinator: StateCoordinator(u),
+        };
+
+        // ahrs.common_init(update_rate_hz)
+        ahrs
+    }
+}
 
 pub trait IOProvider {
     fn is_connected(&self) -> bool;
@@ -50,7 +75,7 @@ pub trait IOProvider {
     fn enable_logging(&mut self, enable: bool);
 }
 
-pub struct RegisterIO<'a, H: RegisterProtocol> {
+pub struct RegisterIO<H: RegisterProtocol> {
     io_provider: H,
     update_rate_hz: u8,
     stop: bool,
@@ -58,7 +83,7 @@ pub struct RegisterIO<'a, H: RegisterProtocol> {
     ahrs_update: ahrs::AHRSUpdate,
     ahrspos_update: ahrs::AHRSPosUpdate,
     board_id: ahrs::BoardID,
-    coordinator: StateCoordinator<'a>,
+    coordinator: StateCoordinator,
     board_state: BoardState,
     last_update_time: Duration,
     byte_count: i32,
@@ -68,8 +93,8 @@ pub struct RegisterIO<'a, H: RegisterProtocol> {
 
 use std::time::Duration;
 
-impl<'a, H: RegisterProtocol> RegisterIO<'a, H> {
-    pub fn new(io_provider: H, update_rate_hz: u8, coordinator: StateCoordinator<'a>) -> Self {
+impl<H: RegisterProtocol> RegisterIO<H> {
+    pub fn new(io_provider: H, update_rate_hz: u8, coordinator: StateCoordinator) -> Self {
         RegisterIO {
             io_provider,
             update_rate_hz,
@@ -296,10 +321,9 @@ impl<'a, H: RegisterProtocol> RegisterIO<'a, H> {
     const DELAY_OVERHEAD_MILLISECONDS: f64 = 4.0;
 }
 
-use std::thread;
 use wpilib::RobotBase;
 
-impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<'a, H> {
+impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<H> {
     fn is_connected(&self) -> bool {
         RobotBase::fpga_time_duration().unwrap_or(Duration::default()) - self.last_update_time
             < Self::IO_TIMEOUT
@@ -557,10 +581,17 @@ struct AhrsState {
 use self::protocol::ahrs;
 use self::protocol::imu;
 
-#[derive(Debug, Clone)]
-pub struct StateCoordinator<'a>(&'a Mutex<AhrsState>);
+use parking_lot::MutexGuard;
+use std::sync::Arc;
 
-impl<'a> StateCoordinator<'a> {
+#[derive(Debug, Clone)]
+pub struct StateCoordinator(Arc<Mutex<AhrsState>>);
+
+impl StateCoordinator {
+    fn lock<'ret, 'me: 'ret>(&'me self) -> MutexGuard<'ret, AhrsState> {
+        self.0.lock()
+    }
+
     fn set_ypr(&self, ypr_update: &imu::YPRUpdate, sensor_timestamp: u64) {
         let mut ahrs = self.0.lock();
         ahrs.yaw = ypr_update.yaw;

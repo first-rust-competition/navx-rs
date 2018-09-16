@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(non_snake_case)]
 /*******************************************************************/
 /*******************************************************************/
 /*                      Register Definitions                       */
@@ -253,13 +254,13 @@ pub const NAVX_SENSOR_STATUS_ALTITUDE_VALID: u8 = 0x08;
 pub const NAVX_SENSOR_STATUS_SEALEVEL_PRESS_SET: u8 = 0x10;
 pub const NAVX_SENSOR_STATUS_FUSED_HEADING_VALID: u8 = 0x20;
 
-/* NAVX_REG_CAPABILITY_FLAGS (Aligned w/NAV6 Flags, see IMUProtocol.h) */
+/* NAVX_REG_CAPABILITY_FLAGS (Aligned w/NAV6 Flags, see imu.rs) */
 
-pub const NAVX_CAPABILITY_FLAG_OMNIMOUNT: u16 = 0x0004;
-pub const NAVX_CAPABILITY_FLAG_OMNIMOUNT_CONFIG_MASK: u16 = 0x0038;
-pub const NAVX_CAPABILITY_FLAG_VEL_AND_DISP: u16 = 0x0040;
-pub const NAVX_CAPABILITY_FLAG_YAW_RESET: u16 = 0x0080;
-pub const NAVX_CAPABILITY_FLAG_AHRSPOS_TS: u16 = 0x0100;
+pub const NAVX_CAPABILITY_FLAG_OMNIMOUNT: i16 = 0x0004;
+pub const NAVX_CAPABILITY_FLAG_OMNIMOUNT_CONFIG_MASK: i16 = 0x0038;
+pub const NAVX_CAPABILITY_FLAG_VEL_AND_DISP: i16 = 0x0040;
+pub const NAVX_CAPABILITY_FLAG_YAW_RESET: i16 = 0x0080;
+pub const NAVX_CAPABILITY_FLAG_AHRSPOS_TS: i16 = 0x0100;
 
 /* NAVX_OMNIMOUNT_CONFIG */
 

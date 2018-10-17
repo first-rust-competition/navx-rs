@@ -17,21 +17,7 @@
 /* Stream type, in order to enable AHRS Updates.                             */
 /*****************************************************************************/
 
-macro_rules! char_u8_const {
-    ( $name:ident, $ch:expr, $value:expr, $test:ident ) => {
-        pub const $name: u8 = $value;
-        #[cfg(test)]
-        mod $test {
-            #[test]
-            fn test() {
-                assert_eq!(char::from(super::$name), $ch);
-            }
-        }
-    };
-}
-
-// const BINARY_PACKET_INDICATOR_CHAR: u8 = 35;
-char_u8_const!(BINARY_PACKET_INDICATOR_CHAR, '#', 35, bpic);
+pub const BINARY_PACKET_INDICATOR_CHAR: u8 = b'#';
 
 /* AHRS Protocol encodes certain data in binary format, unlike the IMU  */
 /* protocol, which encodes all data in ASCII characters.  Thus, the     */
@@ -84,13 +70,7 @@ pub const DATA_GETSET_ERROR: u32 = 1;
 
 // AHRS Update Packet - e.g., !a[yaw][pitch][roll][heading][altitude][fusedheading][accelx/y/z][angular rot x/y/z][opstatus][fusionstatus][cr][lf]
 
-// const MSGID_AHRS_UPDATE: u8 = 97;
-// #[test]
-// fn test_update_char() {
-//     assert_eq!(char::from(MSGID_AHRS_UPDATE), 'a')
-// }
-
-char_u8_const!(MSGID_AHRS_UPDATE, 'a', 97, mau);
+pub const MSGID_AHRS_UPDATE: u8 = b'a';
 pub const AHRS_UPDATE_YAW_VALUE_INDEX: usize = 4; /* Degrees.  Signed Hundredths */
 pub const AHRS_UPDATE_ROLL_VALUE_INDEX: usize = 6; /* Degrees.  Signed Hundredths */
 pub const AHRS_UPDATE_PITCH_VALUE_INDEX: usize = 8; /* Degrees.  Signed Hundredeths */
@@ -124,12 +104,7 @@ pub const AHRS_UPDATE_MESSAGE_TERMINATOR_INDEX: usize = 64;
 pub const AHRS_UPDATE_MESSAGE_LENGTH: usize = 66;
 
 // AHRSAndPositioning Update Packet (similar to AHRS, but removes magnetometer and adds velocity/displacement) */
-// const MSGID_AHRSPOS_UPDATE: u8 = 112;
-// #[test]
-// fn test_update_char() {
-//     assert_eq!(char::from(MSGID_AHRSPOS_UPDATE), 'p')
-// }
-char_u8_const!(MSGID_AHRSPOS_UPDATE, 'p', 112, mapu);
+pub const MSGID_AHRSPOS_UPDATE: u8 = b'p';
 pub const AHRSPOS_UPDATE_YAW_VALUE_INDEX: usize = 4; /* Degrees.  Signed Hundredths */
 pub const AHRSPOS_UPDATE_ROLL_VALUE_INDEX: usize = 6; /* Degrees.  Signed Hundredths */
 pub const AHRSPOS_UPDATE_PITCH_VALUE_INDEX: usize = 8; /* Degrees.  Signed Hundredeths */
@@ -160,8 +135,7 @@ pub const AHRSPOS_UPDATE_MESSAGE_LENGTH: usize = 66;
 
 // AHRSAndPositioningWithTimestamp Update Packet (similar to AHRSPos, but adds sample timestamp)
 
-// #define MSGID_AHRSPOS_TS_UPDATE 't'
-char_u8_const!(MSGID_AHRSPOS_TS_UPDATE, 't', 116, matu);
+pub const MSGID_AHRSPOS_TS_UPDATE: u8 = b't';
 pub const AHRSPOS_TS_UPDATE_YAW_VALUE_INDEX: usize = 4; /* Signed 16:16.  Signed Hundredths */
 pub const AHRSPOS_TS_UPDATE_ROLL_VALUE_INDEX: usize = 8; /* Signed 16:16.  Signed Hundredths */
 pub const AHRSPOS_TS_UPDATE_PITCH_VALUE_INDEX: usize = 12; /* Signed 16:16.  Signed Hundredeths */
@@ -192,8 +166,7 @@ pub const AHRSPOS_TS_UPDATE_MESSAGE_TERMINATOR_INDEX: usize = 92;
 pub const AHRSPOS_TS_UPDATE_MESSAGE_LENGTH: usize = 94;
 
 // Data Get Request:  Tuning Variable, Mag Cal, Board Identity (Response message depends upon request type)
-// #define MSGID_DATA_REQUEST 'D'
-char_u8_const!(MSGID_DATA_REQUEST, 'D', 68, mdr);
+pub const MSGID_DATA_REQUEST: u8 = b'D';
 pub const DATA_REQUEST_DATATYPE_VALUE_INDEX: usize = 4;
 pub const DATA_REQUEST_VARIABLEID_VALUE_INDEX: usize = 5;
 pub const DATA_REQUEST_CHECKSUM_INDEX: usize = 6;
@@ -201,8 +174,7 @@ pub const DATA_REQUEST_TERMINATOR_INDEX: usize = 8;
 pub const DATA_REQUEST_MESSAGE_LENGTH: usize = 10;
 
 /* Data Set Response Packet (in response to MagCal SET and Tuning SET commands. */
-// #define MSGID_DATA_SET_RESPONSE 'v'
-char_u8_const!(MSGID_DATA_SET_RESPONSE, 'v', 118, mdsr);
+pub const MSGID_DATA_SET_RESPONSE: u8 = b'v';
 pub const DATA_SET_RESPONSE_DATATYPE_VALUE_INDEX: usize = 4;
 pub const DATA_SET_RESPONSE_VARID_VALUE_INDEX: usize = 5;
 pub const DATA_SET_RESPONSE_STATUS_VALUE_INDEX: usize = 6;
@@ -211,8 +183,7 @@ pub const DATA_SET_RESPONSE_MESSAGE_TERMINATOR_INDEX: usize = 9;
 pub const DATA_SET_RESPONSE_MESSAGE_LENGTH: usize = 11;
 
 /* Integration Control Command Packet */
-// #define MSGID_INTEGRATION_CONTROL_CMD 'I'
-char_u8_const!(MSGID_INTEGRATION_CONTROL_CMD, 'I', 73, micc);
+pub const MSGID_INTEGRATION_CONTROL_CMD: u8 = b'I';
 pub const INTEGRATION_CONTROL_CMD_ACTION_INDEX: usize = 4;
 pub const INTEGRATION_CONTROL_CMD_PARAMETER_INDEX: usize = 5;
 pub const INTEGRATION_CONTROL_CMD_MESSAGE_CHECKSUM_INDEX: usize = 9;
@@ -220,8 +191,7 @@ pub const INTEGRATION_CONTROL_CMD_MESSAGE_TERMINATOR_INDEX: usize = 11;
 pub const INTEGRATION_CONTROL_CMD_MESSAGE_LENGTH: usize = 13;
 
 /* Integration Control Response Packet */
-// #define MSGID_INTEGRATION_CONTROL_RESP 'j'
-char_u8_const!(MSGID_INTEGRATION_CONTROL_RESP, 'j', 106, micr);
+pub const MSGID_INTEGRATION_CONTROL_RESP: u8 = b'j';
 pub const INTEGRATION_CONTROL_RESP_ACTION_INDEX: usize = 4;
 pub const INTEGRATION_CONTROL_RESP_PARAMETER_INDEX: usize = 5;
 pub const INTEGRATION_CONTROL_RESP_MESSAGE_CHECKSUM_INDEX: usize = 9;
@@ -231,8 +201,7 @@ pub const INTEGRATION_CONTROL_RESP_MESSAGE_LENGTH: usize = 13;
 /* Magnetometer Calibration Packet
  ** This message may be used to SET (store) a new calibration into the navX board, or may be used
  ** to retrieve the current calibration data from the navX board. */
-// #define MSGID_MAG_CAL_CMD 'M'
-char_u8_const!(MSGID_MAG_CAL_CMD, 'M', 77, mmcc);
+pub const MSGID_MAG_CAL_CMD: u8 = b'M';
 pub const MAG_CAL_DATA_ACTION_VALUE_INDEX: usize = 4;
 pub const MAG_X_BIAS_VALUE_INDEX: usize = 5; /* signed short */
 pub const MAG_Y_BIAS_VALUE_INDEX: usize = 7;
@@ -254,8 +223,7 @@ pub const MAG_CAL_CMD_MESSAGE_LENGTH: usize = 55;
 /* Tuning Variable Packet
  ** This message may be used to SET (modify) a tuning variable into the navX board,
  ** or to retrieve a current tuning variable from the navX board. */
-// #define MSGID_FUSION_TUNING_CMD 'T'
-char_u8_const!(MSGID_FUSION_TUNING_CMD, 'T', 84, mftc);
+pub const MSGID_FUSION_TUNING_CMD: u8 = b'T';
 pub const FUSION_TUNING_DATA_ACTION_VALUE_INDEX: usize = 4;
 pub const FUSION_TUNING_CMD_VAR_ID_VALUE_INDEX: usize = 5;
 pub const FUSION_TUNING_CMD_VAR_VALUE_INDEX: usize = 6;
@@ -265,8 +233,7 @@ pub const FUSION_TUNING_CMD_MESSAGE_LENGTH: usize = 14;
 
 // Board Identity Response Packet
 // Sent in response to a Data Get (Board ID) message
-// #define MSGID_BOARD_IDENTITY_RESPONSE 'i'
-char_u8_const!(MSGID_BOARD_IDENTITY_RESPONSE, 'i', 105, mbir);
+pub const MSGID_BOARD_IDENTITY_RESPONSE: u8 = b'i';
 pub const BOARD_IDENTITY_BOARDTYPE_VALUE_INDEX: usize = 4;
 pub const BOARD_IDENTITY_HWREV_VALUE_INDEX: usize = 5;
 pub const BOARD_IDENTITY_FW_VER_MAJOR: usize = 6;

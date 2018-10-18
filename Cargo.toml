@@ -1,7 +1,7 @@
 [package]
 name = "navx"
 version = "0.1.0"
-authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>"]
+authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>", "Josh Hejna <josh.hejna@gmail.com>"]
 
 [dependencies]
 wpilib = { git = "https://github.com/Eaglestrike/first-rust-competition" }

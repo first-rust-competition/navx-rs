@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>", "Josh Hejna <josh.hejna@gmail.com>"]
 
 [dependencies]
-wpilib = { git = "https://github.com/Eaglestrike/first-rust-competition" }
+wpilib = "0.2.3"
 libc = "0.2.43"
 byteorder = "1.2.6"
 parking_lot = {version = "0.6.4", features = ["nightly"]}

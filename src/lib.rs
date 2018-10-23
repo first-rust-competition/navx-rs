@@ -5,7 +5,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(dead_code)]
+// #![allow(dead_code)]
 extern crate byteorder;
 #[macro_use]
 extern crate derive_more;
@@ -16,6 +16,7 @@ extern crate wpilib;
 
 use wpilib::spi;
 
+#[allow(dead_code)]
 mod protocol;
 use std::thread;
 
@@ -39,14 +40,15 @@ impl<IO: IOProvider> AHRS<IO> {
         unimplemented!()
     }
 
-    fn spi_init(&mut self, port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) {
-        self.common_init(update_rate_hz);
-        unimplemented!()
-    }
+    //TODO: Figure out what these actualyl need to do or if they need to be specialized by ioProvider
+    // fn spi_init(&mut self, port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) {
+    //     self.common_init(update_rate_hz);
+    //     unimplemented!()
+    // }
 
-    fn common_init(&mut self, update_rate_hz: u8) {
-        unimplemented!()
-    }
+    // fn common_init(&mut self, update_rate_hz: u8) {
+    //     unimplemented!()
+    // }
 }
 impl<'a> AHRS<RegisterIO<RegisterIOSPI>> {
     pub fn from_spi_minutiae(port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) -> Self {

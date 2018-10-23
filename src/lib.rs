@@ -7,6 +7,7 @@
 
 // #![allow(dead_code)]
 extern crate byteorder;
+extern crate crossbeam_channel as channel;
 #[macro_use]
 extern crate derive_more;
 #[macro_use]
@@ -20,24 +21,32 @@ use wpilib::spi;
 mod protocol;
 use std::thread;
 
-pub struct AHRS<IO: IOProvider> {
-    io: Option<IO>,
+enum IOMessage {
+    ZeroYaw,
+}
+
+pub struct AHRS {
+    io: channel::Sender<IOMessage>,
     io_thread: Option<thread::JoinHandle<()>>,
     coordinator: StateCoordinator,
 }
 
-impl<IO: IOProvider> AHRS<IO> {
+impl AHRS {
     pub fn get_yaw(&self) -> f32 {
         let ahrs = self.coordinator.lock();
         if self.coordinator.board_yaw_reset_supported() {
             ahrs.yaw
         } else {
-            panic!()
+            unimplemented!("Currently, only gyros with on-board yaw-reset are supported")
         }
     }
 
-    pub fn zero_yaw(&self) -> f64 {
-        unimplemented!()
+    pub fn zero_yaw(&mut self) {
+        if self.coordinator.board_yaw_reset_supported() {
+            self.io.send(IOMessage::ZeroYaw);
+        } else {
+            unimplemented!("Currently, only gyros with on-board yaw-reset are supported")
+        }
     }
 
     //TODO: Figure out what these actualyl need to do or if they need to be specialized by ioProvider
@@ -50,18 +59,20 @@ impl<IO: IOProvider> AHRS<IO> {
     //     unimplemented!()
     // }
 }
-impl<'a> AHRS<RegisterIO<RegisterIOSPI>> {
+impl AHRS {
     pub fn from_spi_minutiae(port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) -> Self {
         let u = Arc::new(Mutex::new(AhrsState::default()));
         let u_ = u.clone();
+        let (s, r) = channel::bounded(0);
+        let mut io = RegisterIO::new(
+            RegisterIOSPI::new(wpilib::spi::Spi::new(port).unwrap(), spi_bitrate),
+            update_rate_hz,
+            StateCoordinator(u_),
+            r,
+        );
         let ahrs = Self {
-            io: None,
+            io: s,
             io_thread: Some(thread::spawn(move || {
-                let mut io = RegisterIO::new(
-                    RegisterIOSPI::new(wpilib::spi::Spi::new(port).unwrap(), spi_bitrate),
-                    update_rate_hz,
-                    StateCoordinator(u_),
-                );
                 io.run();
             })),
             coordinator: StateCoordinator(u),
@@ -98,12 +109,18 @@ pub struct RegisterIO<H: RegisterProtocol> {
     byte_count: i32,
     update_count: i32,
     last_sensor_timestamp: u64,
+    cmd_chan: channel::Receiver<IOMessage>,
 }
 
 use std::time::Duration;
 
 impl<H: RegisterProtocol> RegisterIO<H> {
-    pub fn new(io_provider: H, update_rate_hz: u8, coordinator: StateCoordinator) -> Self {
+    pub(crate) fn new(
+        io_provider: H,
+        update_rate_hz: u8,
+        coordinator: StateCoordinator,
+        chan: channel::Receiver<IOMessage>,
+    ) -> Self {
         RegisterIO {
             io_provider,
             update_rate_hz,
@@ -118,6 +135,7 @@ impl<H: RegisterProtocol> RegisterIO<H> {
             byte_count: Default::default(),
             update_count: Default::default(),
             last_sensor_timestamp: Default::default(),
+            cmd_chan: chan,
         }
     }
 
@@ -382,6 +400,10 @@ impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<H> {
                 let rate = self.update_rate_hz;
                 self.set_update_rate_hz(rate);
             }
+            match self.cmd_chan.try_recv() {
+                Some(IOMessage::ZeroYaw) => self.zero_yaw(),
+                _ => (),
+            };
             self.get_current_data();
             thread::sleep(Duration::from_millis(update_rate_ms as u64));
         }

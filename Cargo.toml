@@ -1,6 +1,6 @@
 [package]
 name = "navx"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>", "Josh Hejna <josh.hejna@gmail.com>"]
 
 [dependencies]

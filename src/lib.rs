@@ -23,6 +23,7 @@ use std::thread;
 
 enum IOMessage {
     ZeroYaw,
+    ZeroDisplacement,
 }
 
 pub struct AHRS {
@@ -30,16 +31,24 @@ pub struct AHRS {
     io_thread: Option<thread::JoinHandle<()>>,
     coordinator: StateCoordinator,
 }
+macro_rules! get_function {
+    ([$ret:ty] $fnc:ident) => { pub fn $fnc(&self) -> $ret {
+            let ahrs = self.coordinator.lock();
+            if self.coordinator.board_yaw_reset_supported() {ahrs.$fnc}
+            else {unimplemented!("Currently, only gyros with on-board yaw-reset are supported")}}};
+    ([$ret:ty] $a:ident, $($b:ident),+) => {get_function!([$ret] $a); get_function!([$ret] $($b),+);};
+}
 
 impl AHRS {
-    pub fn get_yaw(&self) -> f32 {
-        let ahrs = self.coordinator.lock();
-        if self.coordinator.board_yaw_reset_supported() {
-            ahrs.yaw
-        } else {
-            unimplemented!("Currently, only gyros with on-board yaw-reset are supported")
-        }
-    }
+    get_function!([bool] is_moving, is_rotating, is_magnetometer_calibrated);
+    get_function!([bool] altitude_valid, magnetic_disturbance);
+    get_function!([f64] last_update_time);
+    get_function!([u64] last_sensor_timestamp);
+
+    get_function!([f32] yaw, pitch, roll, compass_heading, fused_heading, mpu_temp_c);
+    get_function!([f32] world_linear_accel_x, world_linear_accel_y, world_linear_accel_z);
+    get_function!([f32] quaternion_w, quaternion_x, quaternion_y, quaternion_z);
+    get_function!([f32] altitude, baro_pressure, baro_sensor_temp_c);
 
     pub fn zero_yaw(&mut self) {
         if self.coordinator.board_yaw_reset_supported() {
@@ -49,7 +58,15 @@ impl AHRS {
         }
     }
 
-    //TODO: Figure out what these actualyl need to do or if they need to be specialized by ioProvider
+    pub fn zero_displacement(&mut self) {
+        if self.coordinator.displacement_supported() {
+            self.io.send(IOMessage::ZeroDisplacement);
+        } else {
+            unimplemented!("The current board does not support displacement! (Also, these boards can't do it very well)")
+        }
+    }
+
+    //TODO: Figure out what these actually need to do or if they need to be specialized by ioProvider
     // fn spi_init(&mut self, port: spi::Port, spi_bitrate: u32, update_rate_hz: u8) {
     //     self.common_init(update_rate_hz);
     //     unimplemented!()
@@ -402,6 +419,7 @@ impl<'a, H: RegisterProtocol> IOProvider for RegisterIO<H> {
             }
             match self.cmd_chan.try_recv() {
                 Some(IOMessage::ZeroYaw) => self.zero_yaw(),
+                Some(IOMessage::ZeroDisplacement) => self.zero_displacement(),
                 _ => (),
             };
             self.get_current_data();

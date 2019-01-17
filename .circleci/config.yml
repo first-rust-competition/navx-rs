@@ -7,14 +7,14 @@ jobs:
     - checkout
     - restore_cache:
         keys:
-          - v1-{{ checksum "Cargo.lock" }}-{{ .Branch }}-{{ .Revision }}
-          - v1-{{ checksum "Cargo.lock" }}-{{ .Branch }}-
-          - v1-{{ checksum "Cargo.lock" }}-
+          - v1-{{ checksum "Cargo.toml" }}-{{ .Branch }}-{{ .Revision }}
+          - v1-{{ checksum "Cargo.toml" }}-{{ .Branch }}-
+          - v1-{{ checksum "Cargo.toml" }}-
           - v1-
     - run:
         command: cargo build
     - save_cache:
-        key: v1-{{ checksum "Cargo.lock" }}-{{ .Branch }}-{{ .Revision }}
+        key: v1-{{ checksum "Cargo.toml" }}-{{ .Branch }}-{{ .Revision }}
         paths:
         - target
 workflows:

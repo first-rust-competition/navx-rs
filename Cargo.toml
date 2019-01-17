@@ -3,14 +3,18 @@ name = "navx"
 version = "0.1.1"
 authors = ["Jasper Meggitt <jasper.meggitt@gmail.com>", "Josh Hejna <josh.hejna@gmail.com>"]
 
+[features]
+nightly = ["parking_lot/nightly"]
+
 [dependencies]
-wpilib = "0.3"
-libc = "0.2.43"
 byteorder = "1.2.6"
-parking_lot = {version = "0.6.4", features = ["nightly"]}
-derive_more = "0.11.0"
-shrinkwraprs = "0.2.0"
 crossbeam-channel = "0.2"
+derive_more = "0.11.0"
+lazy_static = "1.2.0"
+libc = "0.2.43"
+parking_lot = "0.6.4"
+shrinkwraprs = "0.2.0"
+wpilib = "0.3"
 
 [package.metadata.frc]
 team-number = 114

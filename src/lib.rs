@@ -5,7 +5,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// #![allow(dead_code)]
 extern crate byteorder;
 extern crate crossbeam_channel as channel;
 #[macro_use]
@@ -14,8 +13,12 @@ extern crate derive_more;
 extern crate shrinkwraprs;
 extern crate parking_lot;
 extern crate wpilib;
+extern crate lazy_static;
 
 use wpilib::spi;
+
+#[cfg(not(feature = "nightly"))]
+use lazy_static::lazy_static;
 
 #[allow(dead_code)]
 mod protocol;
@@ -469,9 +472,14 @@ impl RegisterIOSPI {
 use self::protocol::registers;
 use std::mem::size_of_val;
 
-//IDK but they do this
-//TODO: look into this
+#[cfg(feature = "nightly")]
 static SPI_EX: Mutex<()> = Mutex::new(());
+
+
+#[cfg(not(feature = "nightly"))]
+lazy_static! {
+    static ref SPI_EX: Mutex<()> = Mutex::new(());
+}
 
 impl RegisterProtocol for RegisterIOSPI {
     fn init(&mut self) -> bool {

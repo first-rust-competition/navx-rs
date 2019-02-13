@@ -164,7 +164,7 @@ impl<H: RegisterProtocol> RegisterIO<H> {
         let mut success = false;
         let mut retry_count = 0;
         while retry_count < 3 && !success {
-            let mut config = [0u8, NAVX_REG_SENSOR_STATUS_H as u8 + 1];
+            let mut config = [0u8; NAVX_REG_SENSOR_STATUS_H + 1];
             if self
                 .io_provider
                 .read(NAVX_REG_WHOAMI as u8, &mut config[..])

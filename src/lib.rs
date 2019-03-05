@@ -204,7 +204,7 @@ impl<H: RegisterProtocol> RegisterIO<H> {
         let first_address = NAVX_REG_UPDATE_RATE_HZ as usize;
         let displacement_registers = self.coordinator.displacement_supported();
         let buffer_len: u8;
-        let mut curr_data = [0u8; NAVX_REG_LAST as u8 + 1];
+        let mut curr_data = [0u8; NAVX_REG_LAST + 1];
         /* If firmware supports displacement data, acquire it - otherwise implement */
         /* similar (but potentially less accurate) calculations on this processor.  */
         if displacement_registers {
